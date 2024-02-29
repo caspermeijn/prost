@@ -1,8 +1,8 @@
-use once_cell::sync::Lazy;
 use prost_types::source_code_info::Location;
 #[cfg(feature = "cleanup-markdown")]
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Comments on a Protobuf item.
 #[derive(Debug, Default, Clone)]
@@ -110,12 +110,14 @@ impl Comments {
     ///     - escape urls as <http://foo.com>
     ///     - escape `[` & `]` if not already escaped and not followed by a parenthesis or bracket
     fn sanitize_line(line: &str) -> String {
-        static RULE_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://[^\s)]+").unwrap());
-        static RULE_BRACKETS: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"(^|[^\]\\])\[(([^\]]*[^\\])?)\]([^(\[]|$)").unwrap());
+        static RULE_URL: OnceLock<Regex> = OnceLock::new();
+        static RULE_BRACKETS: OnceLock<Regex> = OnceLock::new();
+        let rule_url = RULE_URL.get_or_init(|| Regex::new(r"https?://[^\s)]+").unwrap());
+        let rule_brackets = RULE_BRACKETS
+            .get_or_init(|| Regex::new(r"(^|[^\]\\])\[(([^\]]*[^\\])?)\]([^(\[]|$)").unwrap());
 
-        let mut s = RULE_URL.replace_all(line, r"<$0>").to_string();
-        s = RULE_BRACKETS.replace_all(&s, r"$1\[$2\]$4").to_string();
+        let mut s = rule_url.replace_all(line, r"<$0>").to_string();
+        s = rule_brackets.replace_all(&s, r"$1\[$2\]$4").to_string();
         if Self::should_indent(&s) {
             s.insert(0, ' ');
         }
