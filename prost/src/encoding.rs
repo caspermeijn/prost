@@ -5,7 +5,6 @@
 #![allow(clippy::implicit_hasher, clippy::ptr_arg)]
 
 use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::min;
@@ -41,7 +40,7 @@ pub fn decode_varint(buf: &mut impl Buf) -> Result<u64, DecodeError> {
     let bytes = buf.chunk();
     let len = bytes.len();
     if len == 0 {
-        return Err(DecodeError::new("invalid varint"));
+        return Err(DecodeError::InvalidVarint);
     }
 
     let byte = bytes[0];
@@ -146,7 +145,7 @@ fn decode_varint_slice(bytes: &[u8]) -> Result<(u64, usize), DecodeError> {
 
     // We have overrun the maximum size of a varint (10 bytes) or the final byte caused an overflow.
     // Assume the data is corrupt.
-    Err(DecodeError::new("invalid varint"))
+    Err(DecodeError::InvalidVarint)
 }
 
 /// Decodes a LEB128-encoded variable length integer from the buffer, advancing the buffer as
@@ -166,14 +165,14 @@ fn decode_varint_slow(buf: &mut impl Buf) -> Result<u64, DecodeError> {
             // Check for u64::MAX overflow. See [`ConsumeVarint`][1] for details.
             // [1]: https://github.com/protocolbuffers/protobuf-go/blob/v1.27.1/encoding/protowire/wire.go#L358
             if count == 9 && byte >= 0x02 {
-                return Err(DecodeError::new("invalid varint"));
+                return Err(DecodeError::InvalidVarint);
             } else {
                 return Ok(value);
             }
         }
     }
 
-    Err(DecodeError::new("invalid varint"))
+    Err(DecodeError::InvalidVarint)
 }
 
 /// Additional information passed to every decode/merge function.
@@ -232,7 +231,7 @@ impl DecodeContext {
     #[inline]
     pub(crate) fn limit_reached(&self) -> Result<(), DecodeError> {
         if self.recurse_count == 0 {
-            Err(DecodeError::new("recursion limit reached"))
+            Err(DecodeError::RecursionLimitReached)
         } else {
             Ok(())
         }
@@ -281,10 +280,20 @@ impl TryFrom<u64> for WireType {
             3 => Ok(WireType::StartGroup),
             4 => Ok(WireType::EndGroup),
             5 => Ok(WireType::ThirtyTwoBit),
-            _ => Err(DecodeError::new(format!(
-                "invalid wire type value: {}",
-                value
-            ))),
+            _ => Err(DecodeError::InvalidWireType { value}),
+        }
+    }
+}
+
+impl core::fmt::Display for WireType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            WireType::Varint => write!(f, "varint"),
+            WireType::SixtyFourBit => write!(f, "fixed 64"),
+            WireType::LengthDelimited => write!(f, "length delimited"),
+            WireType::StartGroup => write!(f, "start group"),
+            WireType::EndGroup => write!(f, "end group"),
+            WireType::ThirtyTwoBit => write!(f, "fixed 32"),
         }
     }
 }
@@ -304,13 +313,13 @@ pub fn encode_key(tag: u32, wire_type: WireType, buf: &mut impl BufMut) {
 pub fn decode_key(buf: &mut impl Buf) -> Result<(u32, WireType), DecodeError> {
     let key = decode_varint(buf)?;
     if key > u64::from(u32::MAX) {
-        return Err(DecodeError::new(format!("invalid key value: {}", key)));
+        return Err(DecodeError::InvalidKey { value: key });
     }
     let wire_type = WireType::try_from(key & 0x07)?;
     let tag = key as u32 >> 3;
 
     if tag < MIN_TAG {
-        return Err(DecodeError::new("invalid tag value: 0"));
+        return Err(DecodeError::InvalidTag);
     }
 
     Ok((tag, wire_type))
@@ -328,10 +337,7 @@ pub fn key_len(tag: u32) -> usize {
 #[inline]
 pub fn check_wire_type(expected: WireType, actual: WireType) -> Result<(), DecodeError> {
     if expected != actual {
-        return Err(DecodeError::new(format!(
-            "invalid wire type: {:?} (expected {:?})",
-            actual, expected
-        )));
+        return Err(DecodeError::UnexpectedWireType {actual, expected});
     }
     Ok(())
 }
@@ -351,7 +357,7 @@ where
     let len = decode_varint(buf)?;
     let remaining = buf.remaining();
     if len > remaining as u64 {
-        return Err(DecodeError::new("buffer underflow"));
+        return Err(DecodeError::BufferUnderflow);
     }
 
     let limit = remaining - len as usize;
@@ -360,7 +366,7 @@ where
     }
 
     if buf.remaining() != limit {
-        return Err(DecodeError::new("delimited length exceeded"));
+        return Err(DecodeError::DelimitedLengthExceeded);
     }
     Ok(())
 }
@@ -382,18 +388,18 @@ pub fn skip_field(
             match inner_wire_type {
                 WireType::EndGroup => {
                     if inner_tag != tag {
-                        return Err(DecodeError::new("unexpected end group tag"));
+                        return Err(DecodeError::UnexpectedEndGroupTag);
                     }
                     break 0;
                 }
                 _ => skip_field(inner_wire_type, inner_tag, buf, ctx.enter_recursion())?,
             }
         },
-        WireType::EndGroup => return Err(DecodeError::new("unexpected end group tag")),
+        WireType::EndGroup => return Err(DecodeError::UnexpectedEndGroupTag),
     };
 
     if len > buf.remaining() as u64 {
-        return Err(DecodeError::new("buffer underflow"));
+        return Err(DecodeError::BufferUnderflow);
     }
 
     buf.advance(len as usize);
@@ -598,7 +604,7 @@ macro_rules! fixed_width {
             ) -> Result<(), DecodeError> {
                 check_wire_type($wire_type, wire_type)?;
                 if buf.remaining() < $width {
-                    return Err(DecodeError::new("buffer underflow"));
+                    return Err(DecodeError::BufferUnderflow);
                 }
                 *value = buf.$get();
                 Ok(())
@@ -800,9 +806,7 @@ pub mod string {
                     mem::forget(drop_guard);
                     Ok(())
                 }
-                Err(_) => Err(DecodeError::new(
-                    "invalid string value: data is not UTF-8 encoded",
-                )),
+                Err(_) => Err(DecodeError::InvalidString),
             }
         }
     }
@@ -904,7 +908,7 @@ pub mod bytes {
         check_wire_type(WireType::LengthDelimited, wire_type)?;
         let len = decode_varint(buf)?;
         if len > buf.remaining() as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(DecodeError::BufferUnderflow);
         }
         let len = len as usize;
 
@@ -933,7 +937,7 @@ pub mod bytes {
         check_wire_type(WireType::LengthDelimited, wire_type)?;
         let len = decode_varint(buf)?;
         if len > buf.remaining() as u64 {
-            return Err(DecodeError::new("buffer underflow"));
+            return Err(DecodeError::BufferUnderflow);
         }
         let len = len as usize;
 
@@ -1095,7 +1099,7 @@ pub mod group {
             let (field_tag, field_wire_type) = decode_key(buf)?;
             if field_wire_type == WireType::EndGroup {
                 if field_tag != tag {
-                    return Err(DecodeError::new("unexpected end group tag"));
+                    return Err(DecodeError::UnexpectedEndGroupTag);
                 }
                 return Ok(());
             }

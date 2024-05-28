@@ -120,7 +120,7 @@ fn try_message(input: TokenStream) -> Result<TokenStream, Error> {
             #(#tags)* => {
                 let mut value = &mut self.#field_ident;
                 #merge.map_err(|mut error| {
-                    error.push(STRUCT_NAME, stringify!(#field_ident));
+                    //TODO: error.push(STRUCT_NAME, stringify!(#field_ident));
                     error
                 })
             },

@@ -1,4 +1,36 @@
+use fmt::Display;
+
 use super::*;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecodeAnyError {
+    Decode(DecodeError),
+    /// unexpected type URL
+    UnexpectedTypeUrl {
+        actual: String,
+        expected: String,
+    },
+}
+
+impl Display for DecodeAnyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DecodeAnyError::Decode(err) => write!(f, "{err}"),
+            DecodeAnyError::UnexpectedTypeUrl { actual, expected } => {
+                write!(f, "unexpected type URL: {actual} (expected: {expected})")
+            }
+        }
+    }
+}
+
+impl From<DecodeError> for DecodeAnyError {
+    fn from(err: DecodeError) -> Self {
+        Self::Decode(err)
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for DecodeAnyError {}
 
 impl Any {
     /// Serialize the given message type `M` as [`Any`].
@@ -14,7 +46,7 @@ impl Any {
 
     /// Decode the given message type `M` from [`Any`], validating that it has
     /// the expected type URL.
-    pub fn to_msg<M>(&self) -> Result<M, DecodeError>
+    pub fn to_msg<M>(&self) -> Result<M, DecodeAnyError>
     where
         M: Default + Name + Sized,
     {
@@ -25,16 +57,14 @@ impl Any {
             TypeUrl::new(&self.type_url),
         ) {
             if expected == actual {
-                return M::decode(self.value.as_slice());
+                return M::decode(self.value.as_slice()).map_err(DecodeAnyError::from);
             }
         }
 
-        let mut err = DecodeError::new(format!(
-            "expected type URL: \"{}\" (got: \"{}\")",
-            expected_type_url, &self.type_url
-        ));
-        err.push("unexpected type URL", "type_url");
-        Err(err)
+        Err(DecodeAnyError::UnexpectedTypeUrl {
+            actual: self.type_url.clone(),
+            expected: expected_type_url,
+        })
     }
 }
 
