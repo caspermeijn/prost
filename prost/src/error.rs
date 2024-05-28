@@ -1,73 +1,57 @@
 //! Protobuf encoding and decoding errors.
 
-use alloc::borrow::Cow;
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
 use core::fmt;
+use crate::encoding::WireType;
 
 /// A Protobuf message decoding error.
 ///
 /// `DecodeError` indicates that the input buffer does not contain a valid
 /// Protobuf message. The error details should be considered 'best effort': in
 /// general it is not possible to exactly pinpoint why data is malformed.
-#[derive(Clone, PartialEq, Eq)]
-pub struct DecodeError {
-    inner: Box<Inner>,
-}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecodeError {
+    /// Length delimiter exceeds maximum usize value
+    LengthDelimiterTooLarge,
+    /// Invalid varint
+    InvalidVarint,
+    #[cfg(not(feature = "no-recursion-limit"))]
+    /// Recursion limit reached
+    RecursionLimitReached,
+    /// Invalid wire type value
+    InvalidWireType {value: u64},
+    /// Invalid key value
+    InvalidKey {value: u64},
+    /// Invalid tag value: 0
+    InvalidTag,
+    /// Invalid wire type
+    UnexpectedWireType { actual: WireType, expected: WireType },
+    /// Buffer underflow
+    BufferUnderflow,
+    /// Delimited length exceeded
+    DelimitedLengthExceeded,
+    /// Unexpected end group tag
+    UnexpectedEndGroupTag,
+    /// Invalid string value: data is not UTF-8 encoded
+    InvalidString,
 
-#[derive(Clone, PartialEq, Eq)]
-struct Inner {
-    /// A 'best effort' root cause description.
-    description: Cow<'static, str>,
-    /// A stack of (message, field) name pairs, which identify the specific
-    /// message type and field where decoding failed. The stack contains an
-    /// entry per level of nesting.
-    stack: Vec<(&'static str, &'static str)>,
-}
-
-impl DecodeError {
-    /// Creates a new `DecodeError` with a 'best effort' root cause description.
-    ///
-    /// Meant to be used only by `Message` implementations.
-    #[doc(hidden)]
-    #[cold]
-    pub fn new(description: impl Into<Cow<'static, str>>) -> DecodeError {
-        DecodeError {
-            inner: Box::new(Inner {
-                description: description.into(),
-                stack: Vec::new(),
-            }),
-        }
-    }
-
-    /// Pushes a (message, field) name location pair on to the location stack.
-    ///
-    /// Meant to be used only by `Message` implementations.
-    #[doc(hidden)]
-    pub fn push(&mut self, message: &'static str, field: &'static str) {
-        self.inner.stack.push((message, field));
-    }
-}
-
-impl fmt::Debug for DecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DecodeError")
-            .field("description", &self.inner.description)
-            .field("stack", &self.inner.stack)
-            .finish()
-    }
 }
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("failed to decode Protobuf message: ")?;
-        for &(message, field) in &self.inner.stack {
-            write!(f, "{}.{}: ", message, field)?;
+        write!(f, "failed to decode Protobuf message: ")?;
+        match self {
+            DecodeError::LengthDelimiterTooLarge => write!(f, "Length delimiter exceeds maximum usize value"),
+            DecodeError::InvalidVarint => write!(f, "Invalid varint"),
+            DecodeError::RecursionLimitReached => write!(f, "recursion limit reached"),
+            DecodeError::InvalidWireType { value } => write!(f, "invalid wire type value: {value}"),
+            DecodeError::InvalidKey { value } => write!(f, "invalid key value: {value}"),
+            DecodeError::InvalidTag => write!(f, "invalid tag value: 0"),
+            DecodeError::UnexpectedWireType { actual, expected } => write!(f, "invalid wire type: {actual} (expected {expected})"),
+            DecodeError::BufferUnderflow => write!(f, "buffer underflow"),
+            DecodeError::DelimitedLengthExceeded => write!(f, "delimited length exceeded"),
+            DecodeError::UnexpectedEndGroupTag => write!(f, "unexpected end group tag"),
+            DecodeError::InvalidString => write!(f, "invalid string value: data is not UTF-8 encoded"),
         }
-        f.write_str(&self.inner.description)
     }
 }
 
