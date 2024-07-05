@@ -29,6 +29,8 @@ pub mod no_root_packages;
 pub mod packages;
 pub mod unittest;
 
+pub mod recursive;
+
 #[cfg(test)]
 mod bootstrap;
 #[cfg(test)]

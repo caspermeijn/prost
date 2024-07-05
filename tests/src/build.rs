@@ -64,6 +64,10 @@ fn main() {
         .unwrap();
 
     config
+        .compile_protos(&[src.join("recursive.proto")], includes)
+        .unwrap();
+
+    config
         .compile_protos(&[src.join("custom_attributes.proto")], includes)
         .unwrap();
 
