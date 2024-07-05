@@ -1,0 +1,5 @@
+syntax = "proto2";
+
+package recursive;
+
+message Foo { required Foo x = 1; }

@@ -72,6 +72,10 @@ fn main() {
         .compile_protos(&[src.join("custom_attributes.proto")], includes)
         .unwrap();
 
+    prost_build::Config::new()
+        .compile_protos(&[src.join("recursive.proto")], includes)
+        .unwrap();
+
     config
         .compile_protos(&[src.join("oneof_attributes.proto")], includes)
         .unwrap();
