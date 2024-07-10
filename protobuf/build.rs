@@ -28,8 +28,6 @@ fn main() -> Result<()> {
     let protobuf_dir = &out_dir.join(format!("protobuf-{}", version));
 
     if !protobuf_dir.exists() {
-        apply_patches(&src_dir)?;
-
         let build_dir = &out_dir.join(format!("build-protobuf-{}", version));
         fs::create_dir_all(build_dir).expect("failed to create build directory");
 
@@ -96,25 +94,6 @@ fn git_describe(src_dir: &Path) -> Result<String> {
     Ok(stdout.trim().to_string())
 }
 
-/// Apply patches to the protobuf source directory
-fn apply_patches(src_dir: &Path) -> Result<()> {
-    let mut patch_src = env::current_dir().context("failed to get current working directory")?;
-    patch_src.push("src");
-    patch_src.push("fix-conformance_test_runner-cmake-build.patch");
-
-    let rc = Command::new("patch")
-        .arg("-p1")
-        .arg("-i")
-        .arg(patch_src)
-        .current_dir(src_dir)
-        .status()
-        .context("failed to apply patch")?;
-    // exit code: 0 means success; 1 means already applied
-    ensure!(rc.code().unwrap() <= 1, "protobuf patch failed");
-
-    Ok(())
-}
-
 #[cfg(windows)]
 fn install_conformance_test_runner(_: &Path, _: &Path, _: &Path) -> Result<()> {
     // The conformance test runner does not support Windows [1].
@@ -131,7 +110,7 @@ fn install_conformance_test_runner(
     // Build and install protoc, the protobuf libraries, and the conformance test runner.
     let rc = Command::new("cmake")
         .arg("-GNinja")
-        .arg(src_dir.join("cmake"))
+        .arg(src_dir)
         .arg("-DCMAKE_BUILD_TYPE=DEBUG")
         .arg(&format!("-DCMAKE_INSTALL_PREFIX={}", prefix_dir.display()))
         .arg("-Dprotobuf_BUILD_CONFORMANCE=ON")
