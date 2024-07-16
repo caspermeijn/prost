@@ -2,6 +2,9 @@
 //!
 //! This module contains the encoding and decoding primatives for Protobuf as described in
 //! <https://protobuf.dev/programming-guides/encoding/>.
+//! 
+//! The types in this module have a clearly defined the encoding. If there is ambiguaty for
+//! the encoding, then a new type shoud be defined to split the multiple encoding variants.
 //!
 //! This module is `pub`, but is only for prost internal use. The `prost-derive` crate needs access for its `Message` implementations.
 
@@ -29,6 +32,32 @@ pub use length_delimiter::{
 
 pub mod wire_type;
 pub use wire_type::{check_wire_type, WireType};
+
+/// A trait for objects which can be encoded using Protobuf encoding.
+pub trait ProtobufEncode: Sized {
+    /// Writes `self` to `buf` using protobuf encoding.
+    ///
+    /// The current position of `buf` is advanced.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if there is not enough remaining capacity in
+    /// `buf`. See [`Self::encoded_len()`] for the required length
+    fn encode(&self, buf: &mut impl BufMut);
+
+    /// Returns the number of bytes required to encode this instance.
+    fn encoded_len(&self) -> usize;
+}
+
+/// A trait for objects which can be decoded using Protobuf encoding.
+/// 
+/// A new instance of the type is created and filled with the content of `buf`.
+pub trait ProtobufDecode: Sized {
+    /// Read a `Self` from `buf` using protobuf encoding.
+    ///
+    /// The current position of `buf` is advanced.
+    fn decode(buf: &mut impl Buf) -> Result<Self, DecodeError>;
+}
 
 /// Additional information passed to every decode/merge function.
 ///
