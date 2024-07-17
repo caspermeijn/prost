@@ -2,7 +2,7 @@ use std::mem;
 
 use bytes::Buf;
 use criterion::{Criterion, Throughput};
-use prost::encoding::varint::{decode_varint, encode_varint, encoded_len_varint};
+use prost::encoding::{ProtobufDecode, ProtobufEncode, Varint};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 fn benchmark_varint(criterion: &mut Criterion, name: &str, mut values: Vec<u64>) {
@@ -13,7 +13,7 @@ fn benchmark_varint(criterion: &mut Criterion, name: &str, mut values: Vec<u64>)
     let encoded_len = values
         .iter()
         .cloned()
-        .map(encoded_len_varint)
+        .map(|value| Varint::from(value).encoded_len())
         .sum::<usize>() as u64;
     let decoded_len = (values.len() * mem::size_of::<u64>()) as u64;
 
@@ -26,7 +26,7 @@ fn benchmark_varint(criterion: &mut Criterion, name: &str, mut values: Vec<u64>)
                 b.iter(|| {
                     buf.clear();
                     for &value in &encode_values {
-                        encode_varint(value, &mut buf);
+                        Varint::from(value).encode(&mut buf);
                     }
                     criterion::black_box(&buf);
                 })
@@ -42,13 +42,13 @@ fn benchmark_varint(criterion: &mut Criterion, name: &str, mut values: Vec<u64>)
             move |b| {
                 let mut buf = Vec::with_capacity(decode_values.len() * 10);
                 for &value in &decode_values {
-                    encode_varint(value, &mut buf);
+                    Varint::from(value).encode(&mut buf);
                 }
 
                 b.iter(|| {
                     let mut buf = &mut buf.as_slice();
                     while buf.has_remaining() {
-                        let result = decode_varint(&mut buf);
+                        let result = Varint::decode(&mut buf);
                         debug_assert!(result.is_ok());
                         criterion::black_box(&result);
                     }
@@ -63,7 +63,7 @@ fn benchmark_varint(criterion: &mut Criterion, name: &str, mut values: Vec<u64>)
             b.iter(|| {
                 let mut sum = 0;
                 for &value in &values {
-                    sum += encoded_len_varint(value);
+                    sum += Varint::from(value).encoded_len();
                 }
                 criterion::black_box(sum);
             })

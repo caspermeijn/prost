@@ -4,50 +4,80 @@ use ::bytes::{Buf, BufMut};
 
 use crate::DecodeError;
 
-/// Encodes an integer value into LEB128 variable length format, and writes it to the buffer.
-/// The buffer must have enough remaining space (maximum 10 bytes).
-#[inline]
-pub fn encode_varint(mut value: u64, buf: &mut impl BufMut) {
-    // Varints are never more than 10 bytes
-    for _ in 0..10 {
-        if value < 0x80 {
-            buf.put_u8(value as u8);
-            break;
-        } else {
-            buf.put_u8(((value & 0x7F) | 0x80) as u8);
-            value >>= 7;
+use super::ProtobufEncode;
+use super::ProtobufDecode;
+
+/// An integer value encoded as LEB128 variable length format.
+///
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+pub struct Varint {
+    value: u64,
+}
+
+impl From<u64> for Varint {
+    fn from(value: u64) -> Self {
+        Self { value }
+    }
+}
+
+impl From<Varint> for u64 {
+    fn from(value: Varint) -> Self {
+        value.value
+    }
+}
+
+impl ProtobufEncode for Varint {
+    /// Encodes an integer value into LEB128 variable length format, and writes it to the buffer.
+    ///
+    /// The current position of `buf` is advanced.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if there is not enough remaining capacity in
+    /// `buf`. See [`Self::encoded_len()`] for the required length
+    fn encode(&self, buf: &mut impl BufMut) {
+        let mut value = self.value;
+        // Varints are never more than 10 bytes
+        for _ in 0..10 {
+            if value < 0x80 {
+                buf.put_u8(value as u8);
+                break;
+            } else {
+                buf.put_u8(((value & 0x7F) | 0x80) as u8);
+                value >>= 7;
+            }
         }
     }
-}
 
-/// Returns the encoded length of the value in LEB128 variable length format.
-/// The returned value will be between 1 and 10, inclusive.
-#[inline]
-pub fn encoded_len_varint(value: u64) -> usize {
-    // Based on [VarintSize64][1].
-    // [1]: https://github.com/google/protobuf/blob/3.3.x/src/google/protobuf/io/coded_stream.h#L1301-L1309
-    ((((value | 1).leading_zeros() ^ 63) * 9 + 73) / 64) as usize
-}
-
-/// Decodes a LEB128-encoded variable length integer from the buffer.
-#[inline]
-pub fn decode_varint(buf: &mut impl Buf) -> Result<u64, DecodeError> {
-    let bytes = buf.chunk();
-    let len = bytes.len();
-    if len == 0 {
-        return Err(DecodeError::new("invalid varint"));
+    /// Returns the number of bytes of the encoded the value in LEB128 variable length format.
+    /// The returned value will be between 1 and 10, inclusive.
+    fn encoded_len(&self) -> usize {
+        // Based on [VarintSize64][1].
+        // [1]: https://github.com/google/protobuf/blob/3.3.x/src/google/protobuf/io/coded_stream.h#L1301-L1309
+        ((((self.value | 1).leading_zeros() ^ 63) * 9 + 73) / 64) as usize
     }
+}
 
-    let byte = bytes[0];
-    if byte < 0x80 {
-        buf.advance(1);
-        Ok(u64::from(byte))
-    } else if len > 10 || bytes[len - 1] < 0x80 {
-        let (value, advance) = decode_varint_slice(bytes)?;
-        buf.advance(advance);
-        Ok(value)
-    } else {
-        decode_varint_slow(buf)
+impl ProtobufDecode for Varint {
+    fn decode(buf: &mut impl Buf) -> Result<Self, DecodeError> {
+        let bytes = buf.chunk();
+        let len = bytes.len();
+        if len == 0 {
+            return Err(DecodeError::new("invalid varint"));
+        }
+
+        let byte = bytes[0];
+        if byte < 0x80 {
+            buf.advance(1);
+            let value = byte as u64;
+            Ok(value.into())
+        } else if len > 10 || bytes[len - 1] < 0x80 {
+            let (value, advance) = decode_varint_slice(bytes)?;
+            buf.advance(advance);
+            Ok(value.into())
+        } else {
+            decode_varint_slow(buf).map(Into::into)
+        }
     }
 }
 
@@ -179,20 +209,20 @@ mod test {
         fn check(value: u64, encoded: &[u8]) {
             // Small buffer.
             let mut buf = Vec::with_capacity(1);
-            encode_varint(value, &mut buf);
+            Varint::from(value).encode(&mut buf);
             assert_eq!(buf, encoded);
 
             // Large buffer.
             let mut buf = Vec::with_capacity(100);
-            encode_varint(value, &mut buf);
+            Varint::from(value).encode(&mut buf);
             assert_eq!(buf, encoded);
 
-            assert_eq!(encoded_len_varint(value), encoded.len());
+            assert_eq!(Varint::from(value).encoded_len(), encoded.len());
 
             // See: https://github.com/tokio-rs/prost/pull/1008 for copying reasoning.
             let mut encoded_copy = encoded;
-            let roundtrip_value = decode_varint(&mut encoded_copy).expect("decoding failed");
-            assert_eq!(value, roundtrip_value);
+            let roundtrip_value = Varint::decode(&mut encoded_copy).expect("decoding failed");
+            assert_eq!(value, u64::from(roundtrip_value));
 
             let mut encoded_copy = encoded;
             let roundtrip_value =
@@ -260,7 +290,7 @@ mod test {
     #[test]
     fn varint_overflow() {
         let mut copy = U64_MAX_PLUS_ONE;
-        decode_varint(&mut copy).expect_err("decoding u64::MAX + 1 succeeded");
+        Varint::decode(&mut copy).expect_err("decoding u64::MAX + 1 succeeded");
     }
 
     #[test]
