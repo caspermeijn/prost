@@ -7,7 +7,7 @@ use core::fmt::Debug;
 
 use bytes::{Buf, BufMut};
 
-use crate::encoding::varint::Varint;
+use crate::encoding::length_delimiter::LengthDelimiter;
 use crate::encoding::ProtobufEncode;
 use crate::encoding::wire_type::WireType;
 use crate::encoding::{decode_key, message, DecodeContext};
@@ -79,13 +79,13 @@ pub trait Message: Debug + Send + Sync {
         Self: Sized,
     {
         let len = self.encoded_len();
-        let length = Varint::from(len as u64);
-        let required = len + length.encoded_len();
+        let delimiter = LengthDelimiter::from(len);
+        let required = len + delimiter.encoded_len();
         let remaining = buf.remaining_mut();
         if required > remaining {
             return Err(EncodeError::new(required, remaining));
         }
-        length.encode(buf);
+        delimiter.encode(buf);
         self.encode_raw(buf);
         Ok(())
     }
@@ -96,10 +96,10 @@ pub trait Message: Debug + Send + Sync {
         Self: Sized,
     {
         let len = self.encoded_len();
-        let length = Varint::from(len as u64);
-        let mut buf = Vec::with_capacity(len + length.encoded_len());
+        let delimiter = LengthDelimiter::from(len);
+        let mut buf = Vec::with_capacity(len + delimiter.encoded_len());
 
-        length.encode(&mut buf);
+        delimiter.encode(&mut buf);
         self.encode_raw(&mut buf);
         buf
     }
