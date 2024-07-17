@@ -4,7 +4,9 @@ pub use crate::name::Name;
 
 use bytes::{Buf, BufMut};
 
-use crate::encoding::varint::{decode_varint, encode_varint, encoded_len_varint};
+use crate::encoding::varint::Varint;
+use crate::encoding::ProtobufEncode;
+use crate::encoding::ProtobufDecode;
 
 /// Encodes a length delimiter to the buffer.
 ///
@@ -13,13 +15,13 @@ use crate::encoding::varint::{decode_varint, encode_varint, encoded_len_varint};
 /// An error will be returned if the buffer does not have sufficient capacity to encode the
 /// delimiter.
 pub fn encode_length_delimiter(length: usize, buf: &mut impl BufMut) -> Result<(), EncodeError> {
-    let length = length as u64;
-    let required = encoded_len_varint(length);
+    let length = Varint::from(length as u64);
+    let required = length.encoded_len();
     let remaining = buf.remaining_mut();
     if required > remaining {
         return Err(EncodeError::new(required, remaining));
     }
-    encode_varint(length, buf);
+    length.encode(buf);
     Ok(())
 }
 
@@ -28,7 +30,7 @@ pub fn encode_length_delimiter(length: usize, buf: &mut impl BufMut) -> Result<(
 /// Applications may use this method to ensure sufficient buffer capacity before calling
 /// `encode_length_delimiter`. The returned size will be between 1 and 10, inclusive.
 pub fn length_delimiter_len(length: usize) -> usize {
-    encoded_len_varint(length as u64)
+    Varint::from(length as u64).encoded_len()
 }
 
 /// Decodes a length delimiter from the buffer.
@@ -43,7 +45,7 @@ pub fn length_delimiter_len(length: usize) -> usize {
 ///  * If the supplied buffer contains more than 10 bytes, then the buffer contains an invalid
 ///    delimiter, and typically the buffer should be considered corrupt.
 pub fn decode_length_delimiter(mut buf: impl Buf) -> Result<usize, DecodeError> {
-    let length = decode_varint(&mut buf)?;
+    let length: u64 = Varint::decode(&mut buf)?.into();
     if length > usize::MAX as u64 {
         return Err(DecodeError::new(
             "length delimiter exceeds maximum usize value",
