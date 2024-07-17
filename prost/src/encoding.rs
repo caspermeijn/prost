@@ -27,7 +27,7 @@ pub use varint::Varint;
 
 pub mod length_delimiter;
 pub use length_delimiter::{
-    decode_length_delimiter, encode_length_delimiter, length_delimiter_len,
+    decode_length_delimiter, encode_length_delimiter, length_delimiter_len, LengthDelimiter,
 };
 
 pub mod wire_type;
@@ -179,13 +179,13 @@ where
     M: FnMut(&mut T, &mut B, DecodeContext) -> Result<(), DecodeError>,
     B: Buf,
 {
-    let len: u64 = Varint::decode(buf)?.into();
+    let len: usize = LengthDelimiter::decode(buf)?.into();
     let remaining = buf.remaining();
-    if len > remaining as u64 {
+    if len > remaining {
         return Err(DecodeError::new("buffer underflow"));
     }
 
-    let limit = remaining - len as usize;
+    let limit = remaining - len;
     while buf.remaining() > limit {
         merge(value, buf, ctx.clone())?;
     }
@@ -207,7 +207,7 @@ pub fn skip_field(
         WireType::Varint => Varint::decode(buf).map(|_| 0)?,
         WireType::ThirtyTwoBit => 4,
         WireType::SixtyFourBit => 8,
-        WireType::LengthDelimited => Varint::decode(buf)?.into(),
+        WireType::LengthDelimited => LengthDelimiter::decode(buf)?.into(),
         WireType::StartGroup => loop {
             let (inner_tag, inner_wire_type) = decode_key(buf)?;
             match inner_wire_type {
@@ -223,11 +223,11 @@ pub fn skip_field(
         WireType::EndGroup => return Err(DecodeError::new("unexpected end group tag")),
     };
 
-    if len > buf.remaining() as u64 {
+    if len > buf.remaining() {
         return Err(DecodeError::new("buffer underflow"));
     }
 
-    buf.advance(len as usize);
+    buf.advance(len);
     Ok(())
 }
 
@@ -314,7 +314,7 @@ macro_rules! varint {
                 let len: usize = values.iter().map(|$to_uint64_value| {
                     Varint::from($to_uint64).encoded_len()
                 }).sum();
-                Varint::from(len as u64).encode(buf);
+                LengthDelimiter::from(len).encode(buf);
 
                 for $to_uint64_value in values {
                     Varint::from($to_uint64).encode(buf);
@@ -343,7 +343,7 @@ macro_rules! varint {
                     let len = values.iter()
                                     .map(|$to_uint64_value| Varint::from($to_uint64).encoded_len())
                                     .sum::<usize>();
-                    key_len(tag) + Varint::from(len as u64).encoded_len() + len
+                    key_len(tag) + LengthDelimiter::from(len).encoded_len() + len
                 }
             }
 
@@ -443,8 +443,8 @@ macro_rules! fixed_width {
                 }
 
                 encode_key(tag, WireType::LengthDelimited, buf);
-                let len = values.len() as u64 * $width;
-                Varint::from(len as u64).encode(buf);
+                let len = values.len() * $width;
+                LengthDelimiter::from(len).encode(buf);
 
                 for value in values {
                     buf.$put(*value);
@@ -469,7 +469,7 @@ macro_rules! fixed_width {
                     0
                 } else {
                     let len = $width * values.len();
-                    key_len(tag) + Varint::from(len as u64).encoded_len() + len
+                    key_len(tag) + LengthDelimiter::from(len).encoded_len() + len
                 }
             }
 
@@ -572,7 +572,7 @@ macro_rules! length_delimited {
 
         #[inline]
         pub fn encoded_len(tag: u32, value: &$ty) -> usize {
-            key_len(tag) + Varint::from(value.len() as u64).encoded_len() + value.len()
+            key_len(tag) + LengthDelimiter::from(value.len()).encoded_len() + value.len()
         }
 
         #[inline]
@@ -580,7 +580,7 @@ macro_rules! length_delimited {
             key_len(tag) * values.len()
                 + values
                     .iter()
-                    .map(|value| Varint::from(value.len() as u64).encoded_len() + value.len())
+                    .map(|value| LengthDelimiter::from(value.len()).encoded_len() + value.len())
                     .sum::<usize>()
         }
     };
@@ -591,7 +591,7 @@ pub mod string {
 
     pub fn encode(tag: u32, value: &String, buf: &mut impl BufMut) {
         encode_key(tag, WireType::LengthDelimited, buf);
-        Varint::from(value.len() as u64).encode(buf);
+        LengthDelimiter::from(value.len()).encode(buf);
         buf.put_slice(value.as_bytes());
     }
 
@@ -722,7 +722,7 @@ pub mod bytes {
 
     pub fn encode(tag: u32, value: &impl BytesAdapter, buf: &mut impl BufMut) {
         encode_key(tag, WireType::LengthDelimited, buf);
-        Varint::from(value.len() as u64).encode(buf);
+        LengthDelimiter::from(value.len()).encode(buf);
         value.append_to(buf);
     }
 
@@ -733,11 +733,10 @@ pub mod bytes {
         _ctx: DecodeContext,
     ) -> Result<(), DecodeError> {
         check_wire_type(WireType::LengthDelimited, wire_type)?;
-        let len: u64 = Varint::decode(buf)?.into();
-        if len > buf.remaining() as u64 {
+        let len: usize = LengthDelimiter::decode(buf)?.into();
+        if len > buf.remaining() {
             return Err(DecodeError::new("buffer underflow"));
         }
-        let len = len as usize;
 
         // Clear the existing value. This follows from the following rule in the encoding guide[1]:
         //
@@ -762,11 +761,10 @@ pub mod bytes {
         _ctx: DecodeContext,
     ) -> Result<(), DecodeError> {
         check_wire_type(WireType::LengthDelimited, wire_type)?;
-        let len: u64 = Varint::decode(buf)?.into();
-        if len > buf.remaining() as u64 {
+        let len: usize = LengthDelimiter::decode(buf)?.into();
+        if len > buf.remaining() {
             return Err(DecodeError::new("buffer underflow"));
         }
-        let len = len as usize;
 
         // If we must copy, make sure to copy only once.
         value.replace_with(buf.take(len));
@@ -822,7 +820,7 @@ pub mod message {
         M: Message,
     {
         encode_key(tag, WireType::LengthDelimited, buf);
-        Varint::from(msg.encoded_len() as u64).encode(buf);
+        LengthDelimiter::from(msg.encoded_len()).encode(buf);
         msg.encode_raw(buf);
     }
 
@@ -880,7 +878,7 @@ pub mod message {
         M: Message,
     {
         let len = msg.encoded_len();
-        key_len(tag) + Varint::from(len as u64).encoded_len() + len
+        key_len(tag) + LengthDelimiter::from(len).encoded_len() + len
     }
 
     #[inline]
@@ -892,7 +890,7 @@ pub mod message {
             + messages
                 .iter()
                 .map(Message::encoded_len)
-                .map(|len| len + Varint::from(len as u64).encoded_len())
+                .map(|len| len + LengthDelimiter::from(len).encoded_len())
                 .sum::<usize>()
     }
 }
@@ -1079,7 +1077,7 @@ macro_rules! map {
                     + (if skip_val { 0 } else { val_encoded_len(2, val) });
 
                 encode_key(tag, WireType::LengthDelimited, buf);
-                Varint::from(len as u64).encode(buf);
+                LengthDelimiter::from(len).encode(buf);
                 if !skip_key {
                     key_encode(1, key, buf);
                 }
@@ -1158,7 +1156,7 @@ macro_rules! map {
                         } else {
                             val_encoded_len(2, val)
                         });
-                        Varint::from(len as u64).encoded_len() + len
+                        LengthDelimiter::from(len).encoded_len() + len
                     })
                     .sum::<usize>()
         }
