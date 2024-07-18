@@ -134,8 +134,8 @@ pub trait Message: Debug + Send + Sync {
     {
         let ctx = DecodeContext::default();
         while buf.has_remaining() {
-            let (tag, wire_type) = decode_key(&mut buf)?;
-            self.merge_field(tag, wire_type, &mut buf, ctx.clone())?;
+            let (field_number, wire_type) = decode_key(&mut buf)?;
+            self.merge_field(field_number.into(), wire_type, &mut buf, ctx.clone())?;
         }
         Ok(())
     }
