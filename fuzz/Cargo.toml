@@ -20,3 +20,7 @@ path = "fuzzers/proto3.rs"
 [[bin]]
 name = "proto2"
 path = "fuzzers/proto2.rs"
+
+[[bin]]
+name = "parse_date"
+path = "fuzzers/parse_date.rs"
