@@ -1,11 +1,9 @@
 {
 	"name": "Rust",
-	"image": "mcr.microsoft.com/devcontainers/rust:1-1-bullseye",
-	"features": {
-		"ghcr.io/devcontainers-contrib/features/apt-packages:1": {
-			"packages": "cmake,ninja-build,protobuf-compiler,libprotoc-dev"
-		}
-	},
+	"build": {
+        "dockerfile": "./Dockerfile",
+        "context": "."
+    },
 	"customizations": {
 		"vscode": {
 			"extensions": [
