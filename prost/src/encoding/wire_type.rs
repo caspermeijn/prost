@@ -4,7 +4,7 @@ use alloc::format;
 /// Represent the wire type for protobuf encoding.
 ///
 /// The integer value is equvilant with the encoded value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum WireType {
     Varint = 0,
