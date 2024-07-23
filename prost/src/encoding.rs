@@ -11,7 +11,6 @@
 #![allow(clippy::implicit_hasher, clippy::ptr_arg)]
 
 use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
@@ -35,6 +34,9 @@ pub use wire_type::{check_wire_type, WireType};
 
 pub mod field_number;
 pub use field_number::FieldNumber;
+
+pub mod tag;
+pub use tag::Tag;
 
 /// A trait for objects which can be encoded using Protobuf encoding.
 pub trait ProtobufEncode: Sized {
@@ -135,38 +137,6 @@ impl DecodeContext {
 pub const MIN_TAG: u32 = FieldNumber::MIN.into_inner();
 pub const MAX_TAG: u32 = FieldNumber::MAX.into_inner();
 
-/// Encodes a Protobuf field key, which consists of a wire type designator and
-/// the field tag.
-#[inline]
-pub fn encode_key(field_number: FieldNumber, wire_type: WireType, buf: &mut impl BufMut) {
-    let tag: u32 = field_number.into();
-    let key = (tag << 3) | wire_type as u32;
-    Varint::from(u64::from(key)).encode(buf)
-}
-
-/// Decodes a Protobuf field key, which consists of a wire type designator and
-/// the field tag.
-#[inline(always)]
-pub fn decode_key(buf: &mut impl Buf) -> Result<(FieldNumber, WireType), DecodeError> {
-    let key: u64 = Varint::decode(buf)?.into();
-    if key > u64::from(u32::MAX) {
-        return Err(DecodeError::new(format!("invalid key value: {}", key)));
-    }
-    let wire_type = WireType::try_from(key & 0x07)?;
-    let field_number = FieldNumber::try_from(key as u32 >> 3)?;
-
-    Ok((field_number, wire_type))
-}
-
-/// Returns the width of an encoded Protobuf field key with the given tag.
-/// The returned width will be between 1 and 5 bytes (inclusive).
-#[inline]
-pub fn key_len(field_number: FieldNumber) -> usize {
-    let tag: u32 = field_number.into();
-    let key = u64::from(tag << 3);
-    Varint::from(key).encoded_len()
-}
-
 /// Helper function which abstracts reading a length delimiter prefix followed
 /// by decoding values until the length of bytes is exhausted.
 pub fn merge_loop<T, M, B>(
@@ -209,18 +179,18 @@ pub fn skip_field(
         WireType::SixtyFourBit => 8,
         WireType::LengthDelimited => LengthDelimiter::decode(buf)?.into(),
         WireType::StartGroup => loop {
-            let (inner_field_number, inner_wire_type) = decode_key(buf)?;
-            match inner_wire_type {
+            let inner_tag = Tag::decode(buf)?;
+            match inner_tag.wire_type {
                 WireType::EndGroup => {
                     let field_number = FieldNumber::try_from(tag)?;
-                    if inner_field_number != field_number {
+                    if inner_tag.field_number != field_number {
                         return Err(DecodeError::new("unexpected end group tag"));
                     }
                     break 0;
                 }
                 _ => skip_field(
-                    inner_wire_type,
-                    inner_field_number.into(),
+                    inner_tag.wire_type,
+                    inner_tag.field_number.into(),
                     buf,
                     ctx.enter_recursion(),
                 )?,
@@ -301,7 +271,7 @@ macro_rules! varint {
 
             pub fn encode(tag: u32, $to_uint64_value: &$ty, buf: &mut impl BufMut) {
                 let field_number = FieldNumber::new(tag);
-                encode_key(field_number, WireType::Varint, buf);
+                Tag::new(field_number, WireType::Varint).encode(buf);
                 Varint::from($to_uint64).encode(buf);
             }
 
@@ -318,7 +288,7 @@ macro_rules! varint {
                 if values.is_empty() { return; }
 
                 let field_number = FieldNumber::new(tag);
-                encode_key(field_number, WireType::LengthDelimited, buf);
+                Tag::new(field_number, WireType::LengthDelimited).encode(buf);
                 let len: usize = values.iter().map(|$to_uint64_value| {
                     Varint::from($to_uint64).encoded_len()
                 }).sum();
@@ -334,13 +304,13 @@ macro_rules! varint {
             #[inline]
             pub fn encoded_len(tag: u32, $to_uint64_value: &$ty) -> usize {
                 let field_number = FieldNumber::new(tag);
-                key_len(field_number) + Varint::from($to_uint64).encoded_len()
+                Tag::new(field_number, WireType::Varint).encoded_len() + Varint::from($to_uint64).encoded_len()
             }
 
             #[inline]
             pub fn encoded_len_repeated(tag: u32, values: &[$ty]) -> usize {
                 let field_number = FieldNumber::new(tag);
-                key_len(field_number) * values.len() + values.iter().map(|$to_uint64_value| {
+                Tag::new(field_number, WireType::Varint).encoded_len() * values.len() + values.iter().map(|$to_uint64_value| {
                     Varint::from($to_uint64).encoded_len()
                 }).sum::<usize>()
             }
@@ -354,7 +324,7 @@ macro_rules! varint {
                                     .map(|$to_uint64_value| Varint::from($to_uint64).encoded_len())
                                     .sum::<usize>();
                     let field_number = FieldNumber::new(tag);
-                    key_len(field_number) + LengthDelimiter::from(len).encoded_len() + len
+                    Tag::new(field_number, WireType::Varint).encoded_len() + LengthDelimiter::from(len).encoded_len() + len
                 }
             }
 
@@ -429,7 +399,7 @@ macro_rules! fixed_width {
 
             pub fn encode(tag: u32, value: &$ty, buf: &mut impl BufMut) {
                 let field_number = FieldNumber::new(tag);
-                encode_key(field_number, $wire_type, buf);
+                Tag::new(field_number, $wire_type).encode(buf);
                 buf.$put(*value);
             }
 
@@ -455,7 +425,7 @@ macro_rules! fixed_width {
                 }
 
                 let field_number = FieldNumber::new(tag);
-                encode_key(field_number, WireType::LengthDelimited, buf);
+                Tag::new(field_number, WireType::LengthDelimited).encode(buf);
                 let len = values.len() * $width;
                 LengthDelimiter::from(len).encode(buf);
 
@@ -469,13 +439,14 @@ macro_rules! fixed_width {
             #[inline]
             pub fn encoded_len(tag: u32, _: &$ty) -> usize {
                 let field_number = FieldNumber::new(tag);
-                key_len(field_number) + $width
+                Tag::new(field_number, WireType::LengthDelimited).encoded_len() + $width
             }
 
             #[inline]
             pub fn encoded_len_repeated(tag: u32, values: &[$ty]) -> usize {
                 let field_number = FieldNumber::new(tag);
-                (key_len(field_number) + $width) * values.len()
+                (Tag::new(field_number, WireType::LengthDelimited).encoded_len() + $width)
+                    * values.len()
             }
 
             #[inline]
@@ -485,7 +456,9 @@ macro_rules! fixed_width {
                 } else {
                     let len = $width * values.len();
                     let field_number = FieldNumber::new(tag);
-                    key_len(field_number) + LengthDelimiter::from(len).encoded_len() + len
+                    Tag::new(field_number, WireType::LengthDelimited).encoded_len()
+                        + LengthDelimiter::from(len).encoded_len()
+                        + len
                 }
             }
 
@@ -589,13 +562,15 @@ macro_rules! length_delimited {
         #[inline]
         pub fn encoded_len(tag: u32, value: &$ty) -> usize {
             let field_number = FieldNumber::new(tag);
-            key_len(field_number) + LengthDelimiter::from(value.len()).encoded_len() + value.len()
+            Tag::new(field_number, WireType::LengthDelimited).encoded_len()
+                + LengthDelimiter::from(value.len()).encoded_len()
+                + value.len()
         }
 
         #[inline]
         pub fn encoded_len_repeated(tag: u32, values: &[$ty]) -> usize {
             let field_number = FieldNumber::new(tag);
-            key_len(field_number) * values.len()
+            Tag::new(field_number, WireType::LengthDelimited).encoded_len() * values.len()
                 + values
                     .iter()
                     .map(|value| LengthDelimiter::from(value.len()).encoded_len() + value.len())
@@ -609,7 +584,7 @@ pub mod string {
 
     pub fn encode(tag: u32, value: &String, buf: &mut impl BufMut) {
         let field_number = FieldNumber::new(tag);
-        encode_key(field_number, WireType::LengthDelimited, buf);
+        Tag::new(field_number, WireType::LengthDelimited).encode(buf);
         LengthDelimiter::from(value.len()).encode(buf);
         buf.put_slice(value.as_bytes());
     }
@@ -741,7 +716,7 @@ pub mod bytes {
 
     pub fn encode(tag: u32, value: &impl BytesAdapter, buf: &mut impl BufMut) {
         let field_number = FieldNumber::new(tag);
-        encode_key(field_number, WireType::LengthDelimited, buf);
+        Tag::new(field_number, WireType::LengthDelimited).encode(buf);
         LengthDelimiter::from(value.len()).encode(buf);
         value.append_to(buf);
     }
@@ -840,7 +815,7 @@ pub mod message {
         M: Message,
     {
         let field_number = FieldNumber::new(tag);
-        encode_key(field_number, WireType::LengthDelimited, buf);
+        Tag::new(field_number, WireType::LengthDelimited).encode(buf);
         LengthDelimiter::from(msg.encoded_len()).encode(buf);
         msg.encode_raw(buf);
     }
@@ -862,8 +837,8 @@ pub mod message {
             buf,
             ctx.enter_recursion(),
             |msg: &mut M, buf: &mut B, ctx| {
-                let (field_number, wire_type) = decode_key(buf)?;
-                msg.merge_field(field_number.into(), wire_type, buf, ctx)
+                let tag = Tag::decode(buf)?;
+                msg.merge_field(tag.field_number.into(), tag.wire_type, buf, ctx)
             },
         )
     }
@@ -900,7 +875,9 @@ pub mod message {
     {
         let len = msg.encoded_len();
         let field_number = FieldNumber::new(tag);
-        key_len(field_number) + LengthDelimiter::from(len).encoded_len() + len
+        Tag::new(field_number, WireType::LengthDelimited).encoded_len()
+            + LengthDelimiter::from(len).encoded_len()
+            + len
     }
 
     #[inline]
@@ -909,7 +886,7 @@ pub mod message {
         M: Message,
     {
         let field_number = FieldNumber::new(tag);
-        key_len(field_number) * messages.len()
+        Tag::new(field_number, WireType::LengthDelimited).encoded_len() * messages.len()
             + messages
                 .iter()
                 .map(Message::encoded_len)
@@ -926,9 +903,9 @@ pub mod group {
         M: Message,
     {
         let field_number = FieldNumber::new(tag);
-        encode_key(field_number, WireType::StartGroup, buf);
+        Tag::new(field_number, WireType::StartGroup).encode(buf);
         msg.encode_raw(buf);
-        encode_key(field_number, WireType::EndGroup, buf);
+        Tag::new(field_number, WireType::EndGroup).encode(buf);
     }
 
     pub fn merge<M>(
@@ -945,10 +922,10 @@ pub mod group {
 
         ctx.limit_reached()?;
         loop {
-            let (inner_field_number, field_wire_type) = decode_key(buf)?;
-            if field_wire_type == WireType::EndGroup {
+            let inner_tag = Tag::decode(buf)?;
+            if inner_tag.wire_type == WireType::EndGroup {
                 let field_number = FieldNumber::new(tag);
-                if inner_field_number != field_number {
+                if inner_tag.field_number != field_number {
                     return Err(DecodeError::new("unexpected end group tag"));
                 }
                 return Ok(());
@@ -956,8 +933,8 @@ pub mod group {
 
             M::merge_field(
                 msg,
-                inner_field_number.into(),
-                field_wire_type,
+                inner_tag.field_number.into(),
+                inner_tag.wire_type,
                 buf,
                 ctx.enter_recursion(),
             )?;
@@ -996,7 +973,7 @@ pub mod group {
         M: Message,
     {
         let field_number = FieldNumber::new(tag);
-        2 * key_len(field_number) + msg.encoded_len()
+        2 * Tag::new(field_number, WireType::StartGroup).encoded_len() + msg.encoded_len()
     }
 
     #[inline]
@@ -1005,7 +982,7 @@ pub mod group {
         M: Message,
     {
         let field_number = FieldNumber::new(tag);
-        2 * key_len(field_number) * messages.len()
+        2 * Tag::new(field_number, WireType::StartGroup).encoded_len() * messages.len()
             + messages.iter().map(Message::encoded_len).sum::<usize>()
     }
 }
@@ -1111,7 +1088,7 @@ macro_rules! map {
                     + (if skip_val { 0 } else { val_encoded_len(2, val) });
 
                 let field_number = FieldNumber::new(tag);
-                encode_key(field_number, WireType::LengthDelimited, buf);
+                Tag::new(field_number, WireType::LengthDelimited).encode(buf);
                 LengthDelimiter::from(len).encode(buf);
                 if !skip_key {
                     key_encode(1, key, buf);
@@ -1148,12 +1125,11 @@ macro_rules! map {
                 buf,
                 ctx.enter_recursion(),
                 |&mut (ref mut key, ref mut val), buf, ctx| {
-                    let (field_number, wire_type) = decode_key(buf)?;
-                    let tag = u32::from(field_number);
-                    match tag {
-                        1 => key_merge(wire_type, key, buf, ctx),
-                        2 => val_merge(wire_type, val, buf, ctx),
-                        _ => skip_field(wire_type, tag, buf, ctx),
+                    let tag = Tag::decode(buf)?;
+                    match u32::from(tag.field_number) {
+                        1 => key_merge(tag.wire_type, key, buf, ctx),
+                        2 => val_merge(tag.wire_type, val, buf, ctx),
+                        _ => skip_field(tag.wire_type, tag.field_number.into(), buf, ctx),
                     }
                 },
             )?;
@@ -1180,7 +1156,7 @@ macro_rules! map {
             VL: Fn(u32, &V) -> usize,
         {
             let field_number = FieldNumber::new(tag);
-            key_len(field_number) * values.len()
+            Tag::new(field_number, WireType::LengthDelimited).encoded_len() * values.len()
                 + values
                     .iter()
                     .map(|(key, val)| {
@@ -1257,22 +1233,22 @@ mod test {
             return Ok(());
         }
 
-        let (decoded_field_number, decoded_wire_type) =
-            decode_key(&mut buf).map_err(|error| TestCaseError::fail(error.to_string()))?;
+        let decoded =
+            Tag::decode(&mut buf).map_err(|error| TestCaseError::fail(error.to_string()))?;
         prop_assert_eq!(
             field_number,
-            decoded_field_number,
+            decoded.field_number,
             "decoded tag does not match; expected: {}, actual: {}",
             field_number,
-            decoded_field_number
+            decoded.field_number
         );
 
         prop_assert_eq!(
             wire_type,
-            decoded_wire_type,
+            decoded.wire_type,
             "decoded wire type does not match; expected: {:?}, actual: {:?}",
             wire_type,
-            decoded_wire_type,
+            decoded.wire_type,
         );
 
         match wire_type {
@@ -1344,23 +1320,23 @@ mod test {
 
         let mut roundtrip_value = Default::default();
         while buf.has_remaining() {
-            let (decoded_field_number, decoded_wire_type) =
-                decode_key(&mut buf).map_err(|error| TestCaseError::fail(error.to_string()))?;
+            let decoded =
+                Tag::decode(&mut buf).map_err(|error| TestCaseError::fail(error.to_string()))?;
 
             prop_assert_eq!(
                 field_number,
-                decoded_field_number,
+                decoded.field_number,
                 "decoded tag does not match; expected: {}, actual: {}",
                 field_number,
-                decoded_field_number
+                decoded.field_number
             );
 
             prop_assert_eq!(
                 wire_type,
-                decoded_wire_type,
+                decoded.wire_type,
                 "decoded wire type does not match; expected: {:?}, actual: {:?}",
                 wire_type,
-                decoded_wire_type
+                decoded.wire_type
             );
 
             merge(

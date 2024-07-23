@@ -8,9 +8,11 @@ use core::fmt::Debug;
 use bytes::{Buf, BufMut};
 
 use crate::encoding::length_delimiter::LengthDelimiter;
+use crate::encoding::tag::Tag;
 use crate::encoding::ProtobufEncode;
+use crate::encoding::ProtobufDecode;
 use crate::encoding::wire_type::WireType;
-use crate::encoding::{decode_key, message, DecodeContext};
+use crate::encoding::{message, DecodeContext};
 use crate::DecodeError;
 use crate::EncodeError;
 
@@ -134,8 +136,13 @@ pub trait Message: Debug + Send + Sync {
     {
         let ctx = DecodeContext::default();
         while buf.has_remaining() {
-            let (field_number, wire_type) = decode_key(&mut buf)?;
-            self.merge_field(field_number.into(), wire_type, &mut buf, ctx.clone())?;
+            let tag = Tag::decode(&mut buf)?;
+            self.merge_field(
+                tag.field_number.into(),
+                tag.wire_type,
+                &mut buf,
+                ctx.clone(),
+            )?;
         }
         Ok(())
     }
