@@ -446,7 +446,16 @@ impl<'a> CodeGenerator<'a> {
                     self.buf.push_str(", optional");
                 }
             }
-            Label::Required => self.buf.push_str(", required"),
+            Label::Required => {
+                self.buf.push_str(", required");
+                if self
+                .message_graph
+                .is_nested(field.descriptor.type_name(), fq_message_name)
+                {
+                    panic!("Generated enum variant names overlap: `{}` variant name to be used both by `{}` and `{}` ProtoBuf enum values",
+                generated_variant_name, old_v, value.name());
+                }
+            }
             Label::Repeated => {
                 self.buf.push_str(", repeated");
                 if can_pack(&field.descriptor)
