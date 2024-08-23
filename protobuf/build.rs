@@ -109,49 +109,31 @@ fn apply_patches(src_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn install_conformance_test_runner(_: &Path, _: &Path, _: &Path) -> Result<()> {
-    // The conformance test runner does not support Windows [1].
-    // [1]: https://github.com/protocolbuffers/protobuf/tree/master/conformance#portability
-    Ok(())
-}
-
-#[cfg(not(windows))]
 fn install_conformance_test_runner(
     src_dir: &Path,
     build_dir: &Path,
     prefix_dir: &Path,
 ) -> Result<()> {
-    // Build and install protoc, the protobuf libraries, and the conformance test runner.
-    let rc = Command::new("cmake")
-        .arg("-GNinja")
-        .arg(src_dir.join("cmake"))
-        .arg("-DCMAKE_BUILD_TYPE=DEBUG")
-        .arg(format!("-DCMAKE_INSTALL_PREFIX={}", prefix_dir.display()))
-        .arg("-Dprotobuf_BUILD_CONFORMANCE=ON")
-        .arg("-Dprotobuf_BUILD_TESTS=OFF")
-        .current_dir(build_dir)
-        .status()
-        .context("failed to execute CMake")?;
-    assert!(rc.success(), "protobuf CMake failed");
+    let build_conformance = !cfg!(windows);
 
-    let num_jobs = env::var("NUM_JOBS").context("NUM_JOBS environment variable not set")?;
+    cmake::Config::new(src_dir.join("cmake"))
+        .out_dir(build_dir)
+        .define("CMAKE_INSTALL_PREFIX", prefix_dir)
+        .define("protobuf_BUILD_TESTS", "OFF")
+        .define(
+            "protobuf_BUILD_CONFORMANCE",
+            if build_conformance { "ON" } else { "OFF" },
+        )
+        .build();
 
-    let rc = Command::new("ninja")
-        .arg("-j")
-        .arg(&num_jobs)
-        .arg("install")
-        .current_dir(build_dir)
-        .status()
-        .context("failed to execute ninja protobuf")?;
-    ensure!(rc.success(), "failed to make protobuf");
-
-    // Install the conformance-test-runner binary, since it isn't done automatically.
-    fs::copy(
-        build_dir.join("conformance_test_runner"),
-        prefix_dir.join("bin").join("conformance-test-runner"),
-    )
-    .context("failed to move conformance-test-runner")?;
+    if build_conformance {
+        // Install the conformance-test-runner binary, since it isn't done automatically.
+        fs::copy(
+            build_dir.join("conformance_test_runner"),
+            prefix_dir.join("bin").join("conformance-test-runner"),
+        )
+        .context("failed to move conformance-test-runner")?;
+    }
 
     Ok(())
 }
