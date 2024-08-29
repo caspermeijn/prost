@@ -236,7 +236,7 @@ impl<'a> CodeGenerator<'a> {
                 ""
             },
             if self.message_graph.can_message_derive_eq(&fq_message_name) {
-                "Eq, "
+                "Eq, Hash, "
             } else {
                 ""
             },
@@ -631,7 +631,7 @@ impl<'a> CodeGenerator<'a> {
         self.buf.push_str(&format!(
             "#[derive(Clone, {}PartialEq, {}{}::Oneof)]\n",
             if can_oneof_derive_copy { "Copy, " } else { "" },
-            if can_oneof_derive_eq { "Eq, " } else { "" },
+            if can_oneof_derive_eq { "Eq, Hash, " } else { "" },
             prost_path(self.config)
         ));
         self.append_skip_debug(fq_message_name);

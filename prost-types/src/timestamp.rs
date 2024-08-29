@@ -113,14 +113,6 @@ impl Name for Timestamp {
 }
 
 #[cfg(feature = "std")]
-impl std::hash::Hash for Timestamp {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.seconds.hash(state);
-        self.nanos.hash(state);
-    }
-}
-
-#[cfg(feature = "std")]
 impl From<std::time::SystemTime> for Timestamp {
     fn from(system_time: std::time::SystemTime) -> Timestamp {
         let (seconds, nanos) = match system_time.duration_since(std::time::UNIX_EPOCH) {
