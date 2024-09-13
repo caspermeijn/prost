@@ -1283,6 +1283,8 @@ mod tests {
         let mut config = Config::new();
         config.protoc_executable("src/lib.rs");
 
+// This line needs to be formatted
+
         let err = config.load_fds(&[""], &[""]).unwrap_err();
         assert_starts_with!(err.to_string(), "failed to invoke protoc (hint: https://docs.rs/prost-build/#sourcing-protoc): (path: src/lib.rs): ")
     }
