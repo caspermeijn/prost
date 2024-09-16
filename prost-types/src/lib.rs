@@ -35,6 +35,7 @@
 //!
 //! ## Feature Flags
 //! - `std`: Enable integration with standard library. Disable this feature for `no_std` support. This feature is enabled by default.
+//! - `chrono`: Enable integration with crate `chrono`. Time related types implement conversions to/from their `chrono` equivalent.
 //!
 //! [1]: https://developers.google.com/protocol-buffers/docs/reference/google.protobuf
 

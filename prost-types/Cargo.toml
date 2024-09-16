@@ -15,9 +15,11 @@ doctest = false
 [features]
 default = ["std"]
 std = ["prost/std"]
+chrono = ["dep:chrono"]
 
 [dependencies]
-prost = { version = "0.13.3", path = "../prost", default-features = false, features = ["prost-derive"] }
+prost = { version = "0.13.2", path = "../prost", default-features = false, features = ["prost-derive"] }
+chrono = { version = "0.4", default-features = false, features = [], optional = true}
 
 [dev-dependencies]
 proptest = "1"
