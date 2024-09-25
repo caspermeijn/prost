@@ -74,6 +74,9 @@ mod groups;
 #[cfg(test)]
 mod default_string_escape;
 
+#[cfg(test)]
+mod custom_attributes;
+
 mod test_enum_named_option_value {
     include!(concat!(env!("OUT_DIR"), "/myenum.optionn.rs"));
 }
@@ -94,16 +97,6 @@ pub mod foo {
     pub mod bar_baz {
         include!(concat!(env!("OUT_DIR"), "/foo.bar_baz.rs"));
     }
-}
-
-/// This tests the custom attributes support by abusing docs.
-///
-/// Docs really are full-blown attributes. So we use them to ensure we can place them on everything
-/// we need. If they aren't put onto something or allowed not to be there (by the generator),
-/// compilation fails.
-#[deny(missing_docs)]
-pub mod custom_attributes {
-    include!(concat!(env!("OUT_DIR"), "/foo.custom.attrs.rs"));
 }
 
 /// Also for testing custom attributes, but on oneofs.
