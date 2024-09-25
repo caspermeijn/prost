@@ -77,6 +77,9 @@ mod default_string_escape;
 #[cfg(test)]
 mod custom_attributes;
 
+// Must be `pub` as doc tests are only executed on public types.
+pub mod disable_comments;
+
 mod test_enum_named_option_value {
     include!(concat!(env!("OUT_DIR"), "/myenum.optionn.rs"));
 }
@@ -111,12 +114,6 @@ pub mod oneof_attributes {
 pub mod proto3 {
     pub mod presence {
         include!(concat!(env!("OUT_DIR"), "/proto3.presence.rs"));
-    }
-}
-
-pub mod invalid {
-    pub mod doctest {
-        include!(concat!(env!("OUT_DIR"), "/invalid.doctest.rs"));
     }
 }
 
