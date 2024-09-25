@@ -49,9 +49,6 @@ mod no_shadowed_types;
 #[cfg(test)]
 mod no_unused_results;
 #[cfg(test)]
-#[cfg(feature = "std")]
-mod skip_debug;
-#[cfg(test)]
 mod submessage_without_package;
 #[cfg(test)]
 mod type_names;
@@ -67,6 +64,9 @@ mod nesting;
 
 #[cfg(test)]
 mod recursive_oneof;
+
+#[cfg(test)]
+mod custom_debug;
 
 mod test_enum_named_option_value {
     include!(concat!(env!("OUT_DIR"), "/myenum.optionn.rs"));
@@ -87,17 +87,6 @@ mod test_result_named_result_value {
 pub mod foo {
     pub mod bar_baz {
         include!(concat!(env!("OUT_DIR"), "/foo.bar_baz.rs"));
-    }
-}
-
-#[cfg(feature = "std")]
-pub mod custom_debug {
-    use std::fmt;
-    include!(concat!(env!("OUT_DIR"), "/custom_debug.rs"));
-    impl fmt::Debug for Msg {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("Msg {..}")
-        }
     }
 }
 
