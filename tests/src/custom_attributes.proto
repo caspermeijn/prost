@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package Foo.Custom.Attrs;
+package custom_attributes;
 
 message Msg {
 }
