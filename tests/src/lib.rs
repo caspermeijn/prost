@@ -56,6 +56,8 @@ mod submessage_without_package;
 #[cfg(test)]
 mod type_names;
 
+mod oneof_name_conflict;
+
 mod test_enum_named_option_value {
     include!(concat!(env!("OUT_DIR"), "/myenum.optionn.rs"));
 }

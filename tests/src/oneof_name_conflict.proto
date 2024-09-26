@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package oneof_name_conflict;
+
+message Msg {
+  message Field {
+    int32 c = 3;
+  }
+
+  oneof field {
+    string a = 1;
+    Field b = 2;
+  }
+}
