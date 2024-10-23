@@ -1,7 +1,7 @@
 //! Protobuf encoding and decoding errors.
 
-use core::fmt;
 use crate::encoding::WireType;
+use core::fmt;
 
 /// A Protobuf message decoding error.
 ///
@@ -18,13 +18,16 @@ pub enum DecodeError {
     /// Recursion limit reached
     RecursionLimitReached,
     /// Invalid wire type value
-    InvalidWireType {value: u64},
+    InvalidWireType { value: u64 },
     /// Invalid key value
-    InvalidKey {value: u64},
+    InvalidKey { value: u64 },
     /// Invalid tag value: 0
     InvalidTag,
     /// Invalid wire type
-    UnexpectedWireType { actual: WireType, expected: WireType },
+    UnexpectedWireType {
+        actual: WireType,
+        expected: WireType,
+    },
     /// Buffer underflow
     BufferUnderflow,
     /// Delimited length exceeded
@@ -33,24 +36,29 @@ pub enum DecodeError {
     UnexpectedEndGroupTag,
     /// Invalid string value: data is not UTF-8 encoded
     InvalidString,
-
 }
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "failed to decode Protobuf message: ")?;
         match self {
-            DecodeError::LengthDelimiterTooLarge => write!(f, "Length delimiter exceeds maximum usize value"),
+            DecodeError::LengthDelimiterTooLarge => {
+                write!(f, "Length delimiter exceeds maximum usize value")
+            }
             DecodeError::InvalidVarint => write!(f, "Invalid varint"),
             DecodeError::RecursionLimitReached => write!(f, "recursion limit reached"),
             DecodeError::InvalidWireType { value } => write!(f, "invalid wire type value: {value}"),
             DecodeError::InvalidKey { value } => write!(f, "invalid key value: {value}"),
             DecodeError::InvalidTag => write!(f, "invalid tag value: 0"),
-            DecodeError::UnexpectedWireType { actual, expected } => write!(f, "invalid wire type: {actual} (expected {expected})"),
+            DecodeError::UnexpectedWireType { actual, expected } => {
+                write!(f, "invalid wire type: {actual:?} (expected {expected:?})")
+            }
             DecodeError::BufferUnderflow => write!(f, "buffer underflow"),
             DecodeError::DelimitedLengthExceeded => write!(f, "delimited length exceeded"),
             DecodeError::UnexpectedEndGroupTag => write!(f, "unexpected end group tag"),
-            DecodeError::InvalidString => write!(f, "invalid string value: data is not UTF-8 encoded"),
+            DecodeError::InvalidString => {
+                write!(f, "invalid string value: data is not UTF-8 encoded")
+            }
         }
     }
 }
