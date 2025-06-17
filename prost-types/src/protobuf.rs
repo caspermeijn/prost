@@ -45,9 +45,14 @@ pub struct FileDescriptorProto {
     #[prost(message, optional, tag = "9")]
     pub source_code_info: ::core::option::Option<SourceCodeInfo>,
     /// The syntax of the proto file.
-    /// The supported values are "proto2" and "proto3".
+    /// The supported values are "proto2", "proto3", and "editions".
+    ///
+    /// If `edition` is present, this value must be "editions".
     #[prost(string, optional, tag = "12")]
     pub syntax: ::core::option::Option<::prost::alloc::string::String>,
+    /// The edition of the proto file.
+    #[prost(enumeration = "Edition", optional, tag = "14")]
+    pub edition: ::core::option::Option<i32>,
 }
 /// Describes a message type.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -110,6 +115,91 @@ pub struct ExtensionRangeOptions {
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
+    /// For external users: DO NOT USE. We are in the process of open sourcing
+    /// extension declaration and executing internal cleanups before it can be
+    /// used externally.
+    #[prost(message, repeated, tag = "2")]
+    pub declaration: ::prost::alloc::vec::Vec<extension_range_options::Declaration>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "50")]
+    pub features: ::core::option::Option<FeatureSet>,
+    /// The verification state of the range.
+    /// TODO: flip the default to DECLARATION once all empty ranges
+    /// are marked as UNVERIFIED.
+    #[prost(
+        enumeration = "extension_range_options::VerificationState",
+        optional,
+        tag = "3",
+        default = "Unverified"
+    )]
+    pub verification: ::core::option::Option<i32>,
+}
+/// Nested message and enum types in `ExtensionRangeOptions`.
+pub mod extension_range_options {
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Declaration {
+        /// The extension number declared within the extension range.
+        #[prost(int32, optional, tag = "1")]
+        pub number: ::core::option::Option<i32>,
+        /// The fully-qualified name of the extension field. There must be a leading
+        /// dot in front of the full name.
+        #[prost(string, optional, tag = "2")]
+        pub full_name: ::core::option::Option<::prost::alloc::string::String>,
+        /// The fully-qualified type name of the extension field. Unlike
+        /// Metadata.type, Declaration.type must have a leading dot for messages
+        /// and enums.
+        #[prost(string, optional, tag = "3")]
+        pub r#type: ::core::option::Option<::prost::alloc::string::String>,
+        /// If true, indicates that the number is reserved in the extension range,
+        /// and any extension field with the number will fail to compile. Set this
+        /// when a declared extension field is deleted.
+        #[prost(bool, optional, tag = "5")]
+        pub reserved: ::core::option::Option<bool>,
+        /// If true, indicates that the extension must be defined as repeated.
+        /// Otherwise the extension must be defined as optional.
+        #[prost(bool, optional, tag = "6")]
+        pub repeated: ::core::option::Option<bool>,
+    }
+    /// The verification state of the extension range.
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum VerificationState {
+        /// All the extensions of the range must be declared.
+        Declaration = 0,
+        Unverified = 1,
+    }
+    impl VerificationState {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Declaration => "DECLARATION",
+                Self::Unverified => "UNVERIFIED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "DECLARATION" => Some(Self::Declaration),
+                "UNVERIFIED" => Some(Self::Unverified),
+                _ => None,
+            }
+        }
+    }
 }
 /// Describes a field within a message.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -140,7 +230,6 @@ pub struct FieldDescriptorProto {
     /// For booleans, "true" or "false".
     /// For strings, contains the default text contents (not escaped in any way).
     /// For bytes, contains the C escaped value.  All bytes >= 128 are escaped.
-    /// TODO(kenton):  Base-64 encode?
     #[prost(string, optional, tag = "7")]
     pub default_value: ::core::option::Option<::prost::alloc::string::String>,
     /// If set, gives the index of a oneof in the containing type's oneof_decl
@@ -211,9 +300,10 @@ pub mod field_descriptor_proto {
         Bool = 8,
         String = 9,
         /// Tag-delimited aggregate.
-        /// Group type is deprecated and not supported in proto3. However, Proto3
+        /// Group type is deprecated and not supported after google.protobuf. However, Proto3
         /// implementations should still be able to parse the group wire format and
-        /// treat group fields as unknown fields.
+        /// treat group fields as unknown fields.  In Editions, the group wire format
+        /// can be enabled via the `message_encoding` feature.
         Group = 10,
         /// Length-delimited aggregate.
         Message = 11,
@@ -296,8 +386,11 @@ pub mod field_descriptor_proto {
     pub enum Label {
         /// 0 is reserved for errors
         Optional = 1,
-        Required = 2,
         Repeated = 3,
+        /// The required label is only allowed in google.protobuf.  In proto3 and Editions
+        /// it's explicitly prohibited.  In Editions, the `field_presence` feature
+        /// can be used to get this behavior.
+        Required = 2,
     }
     impl Label {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -307,16 +400,16 @@ pub mod field_descriptor_proto {
         pub fn as_str_name(&self) -> &'static str {
             match self {
                 Self::Optional => "LABEL_OPTIONAL",
-                Self::Required => "LABEL_REQUIRED",
                 Self::Repeated => "LABEL_REPEATED",
+                Self::Required => "LABEL_REQUIRED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
                 "LABEL_OPTIONAL" => Some(Self::Optional),
-                "LABEL_REQUIRED" => Some(Self::Required),
                 "LABEL_REPEATED" => Some(Self::Repeated),
+                "LABEL_REQUIRED" => Some(Self::Required),
                 _ => None,
             }
         }
@@ -415,35 +508,6 @@ pub struct MethodDescriptorProto {
     #[prost(bool, optional, tag = "6", default = "false")]
     pub server_streaming: ::core::option::Option<bool>,
 }
-/// Each of the definitions above may have "options" attached.  These are
-/// just annotations which may cause code to be generated slightly differently
-/// or may contain hints for code that manipulates protocol messages.
-///
-/// Clients may define custom options as extensions of the \*Options messages.
-/// These extensions may not yet be known at parsing time, so the parser cannot
-/// store the values in them.  Instead it stores them in a field in the \*Options
-/// message called uninterpreted_option. This field must have the same name
-/// across all \*Options messages. We then use this field to populate the
-/// extensions when we build a descriptor, at which point all protos have been
-/// parsed and so all extensions are known.
-///
-/// Extension numbers for custom options may be chosen as follows:
-///
-/// * For options which will only be used within a single application or
-///   organization, or for experimental options, use field numbers 50000
-///   through 99999.  It is up to you to ensure that you do not use the
-///   same number for multiple options.
-/// * For options which will be published and used publicly by multiple
-///   independent entities, e-mail protobuf-global-extension-registry@google.com
-///   to reserve extension numbers. Simply provide your project name (e.g.
-///   Objective-C plugin) and your project website (if available) -- there's no
-///   need to explain how you intend to use them. Usually you only need one
-///   extension number. You can declare multiple options with only one extension
-///   number by putting them in a sub-message. See the Custom Options section of
-///   the docs for examples:
-///   <https://developers.google.com/protocol-buffers/docs/proto#options>
-///   If this turns out to be popular, a web service will be set up
-///   to automatically assign option numbers.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FileOptions {
@@ -555,6 +619,9 @@ pub struct FileOptions {
     /// determining the ruby package.
     #[prost(string, optional, tag = "45")]
     pub ruby_package: ::core::option::Option<::prost::alloc::string::String>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "50")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here.
     /// See the documentation for the "Options" section above.
     #[prost(message, repeated, tag = "999")]
@@ -643,6 +710,10 @@ pub struct MessageOptions {
     /// this is a formalization for deprecating messages.
     #[prost(bool, optional, tag = "3", default = "false")]
     pub deprecated: ::core::option::Option<bool>,
+    /// NOTE: Do not set the option in .proto files. Always use the maps syntax
+    /// instead. The option should only be implicitly set by the proto compiler
+    /// parser.
+    ///
     /// Whether the message is an automatically generated map entry type for the
     /// maps field.
     ///
@@ -660,12 +731,24 @@ pub struct MessageOptions {
     /// use a native map in the target language to hold the keys and values.
     /// The reflection APIs in such implementations still need to work as
     /// if the field is a repeated message field.
-    ///
-    /// NOTE: Do not set the option in .proto files. Always use the maps syntax
-    /// instead. The option should only be implicitly set by the proto compiler
-    /// parser.
     #[prost(bool, optional, tag = "7")]
     pub map_entry: ::core::option::Option<bool>,
+    /// Enable the legacy handling of JSON field name conflicts.  This lowercases
+    /// and strips underscored from the fields before comparison in proto3 only.
+    /// The new behavior takes `json_name` into account and applies to proto2 as
+    /// well.
+    ///
+    /// This should only be used as a temporary measure against broken builds due
+    /// to the change in behavior for JSON field name conflicts.
+    ///
+    /// TODO This is legacy behavior we plan to remove once downstream
+    /// teams have had time to migrate.
+    #[deprecated]
+    #[prost(bool, optional, tag = "11")]
+    pub deprecated_legacy_json_field_conflicts: ::core::option::Option<bool>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "12")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
@@ -675,8 +758,10 @@ pub struct MessageOptions {
 pub struct FieldOptions {
     /// The ctype option instructs the C++ code generator to use a different
     /// representation of the field than it normally would.  See the specific
-    /// options below.  This option is not yet implemented in the open source
-    /// release -- sorry, we'll try to include it in a future version!
+    /// options below.  This option is only implemented to support use of
+    /// \[ctype=CORD\] and \[ctype=STRING\] (the default) on non-repeated fields of
+    /// type "bytes" in the open source release -- sorry, we'll try to include
+    /// other types in a future version!
     #[prost(
         enumeration = "field_options::CType",
         optional,
@@ -688,7 +773,9 @@ pub struct FieldOptions {
     /// a more efficient representation on the wire. Rather than repeatedly
     /// writing the tag and type for each element, the entire array is encoded as
     /// a single length-delimited blob. In proto3, only explicit setting it to
-    /// false will avoid using packed encoding.
+    /// false will avoid using packed encoding.  This option is prohibited in
+    /// Editions, but the `repeated_field_encoding` feature can be used to control
+    /// the behavior.
     #[prost(bool, optional, tag = "2")]
     pub packed: ::core::option::Option<bool>,
     /// The jstype option determines the JavaScript type used for values of the
@@ -736,8 +823,16 @@ pub struct FieldOptions {
     /// implementation must either *always* check its required fields, or *never*
     /// check its required fields, regardless of whether or not the message has
     /// been parsed.
+    ///
+    /// As of May 2022, lazy verifies the contents of the byte stream during
+    /// parsing.  An invalid byte stream will cause the overall parsing to fail.
     #[prost(bool, optional, tag = "5", default = "false")]
     pub lazy: ::core::option::Option<bool>,
+    /// unverified_lazy does no correctness checks on the byte stream. This should
+    /// only be used where lazy with verification is prohibitive for performance
+    /// reasons.
+    #[prost(bool, optional, tag = "15", default = "false")]
+    pub unverified_lazy: ::core::option::Option<bool>,
     /// Is this field deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
     /// for accessors, or it will be completely ignored; in the very least, this
@@ -747,12 +842,39 @@ pub struct FieldOptions {
     /// For Google-internal migration only. Do not use.
     #[prost(bool, optional, tag = "10", default = "false")]
     pub weak: ::core::option::Option<bool>,
+    /// Indicate that the field value should not be printed out when using debug
+    /// formats, e.g. when the field contains sensitive credentials.
+    #[prost(bool, optional, tag = "16", default = "false")]
+    pub debug_redact: ::core::option::Option<bool>,
+    #[prost(enumeration = "field_options::OptionRetention", optional, tag = "17")]
+    pub retention: ::core::option::Option<i32>,
+    #[prost(
+        enumeration = "field_options::OptionTargetType",
+        repeated,
+        packed = "false",
+        tag = "19"
+    )]
+    pub targets: ::prost::alloc::vec::Vec<i32>,
+    #[prost(message, repeated, tag = "20")]
+    pub edition_defaults: ::prost::alloc::vec::Vec<field_options::EditionDefault>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "21")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
 }
 /// Nested message and enum types in `FieldOptions`.
 pub mod field_options {
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct EditionDefault {
+        #[prost(enumeration = "super::Edition", optional, tag = "3")]
+        pub edition: ::core::option::Option<i32>,
+        /// Textproto value.
+        #[prost(string, optional, tag = "2")]
+        pub value: ::core::option::Option<::prost::alloc::string::String>,
+    }
     #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
     #[derive(
         Clone,
@@ -769,6 +891,12 @@ pub mod field_options {
     pub enum CType {
         /// Default mode.
         String = 0,
+        /// The option \[ctype=CORD\] may be applied to a non-repeated field of type
+        /// "bytes". It indicates that in C++, the data should be stored in a Cord
+        /// instead of a string.  For very large strings, this may reduce memory
+        /// fragmentation. It may also allow better performance when parsing from a
+        /// Cord, or when parsing with aliasing enabled, as the parsed Cord may then
+        /// alias the original buffer.
         Cord = 1,
         StringPiece = 2,
     }
@@ -837,10 +965,121 @@ pub mod field_options {
             }
         }
     }
+    /// If set to RETENTION_SOURCE, the option will be omitted from the binary.
+    /// Note: as of January 2023, support for this is in progress and does not yet
+    /// have an effect (b/264593489).
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum OptionRetention {
+        RetentionUnknown = 0,
+        RetentionRuntime = 1,
+        RetentionSource = 2,
+    }
+    impl OptionRetention {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::RetentionUnknown => "RETENTION_UNKNOWN",
+                Self::RetentionRuntime => "RETENTION_RUNTIME",
+                Self::RetentionSource => "RETENTION_SOURCE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "RETENTION_UNKNOWN" => Some(Self::RetentionUnknown),
+                "RETENTION_RUNTIME" => Some(Self::RetentionRuntime),
+                "RETENTION_SOURCE" => Some(Self::RetentionSource),
+                _ => None,
+            }
+        }
+    }
+    /// This indicates the types of entities that the field may apply to when used
+    /// as an option. If it is unset, then the field may be freely used as an
+    /// option on any kind of entity. Note: as of January 2023, support for this is
+    /// in progress and does not yet have an effect (b/264593489).
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum OptionTargetType {
+        TargetTypeUnknown = 0,
+        TargetTypeFile = 1,
+        TargetTypeExtensionRange = 2,
+        TargetTypeMessage = 3,
+        TargetTypeField = 4,
+        TargetTypeOneof = 5,
+        TargetTypeEnum = 6,
+        TargetTypeEnumEntry = 7,
+        TargetTypeService = 8,
+        TargetTypeMethod = 9,
+    }
+    impl OptionTargetType {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::TargetTypeUnknown => "TARGET_TYPE_UNKNOWN",
+                Self::TargetTypeFile => "TARGET_TYPE_FILE",
+                Self::TargetTypeExtensionRange => "TARGET_TYPE_EXTENSION_RANGE",
+                Self::TargetTypeMessage => "TARGET_TYPE_MESSAGE",
+                Self::TargetTypeField => "TARGET_TYPE_FIELD",
+                Self::TargetTypeOneof => "TARGET_TYPE_ONEOF",
+                Self::TargetTypeEnum => "TARGET_TYPE_ENUM",
+                Self::TargetTypeEnumEntry => "TARGET_TYPE_ENUM_ENTRY",
+                Self::TargetTypeService => "TARGET_TYPE_SERVICE",
+                Self::TargetTypeMethod => "TARGET_TYPE_METHOD",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "TARGET_TYPE_UNKNOWN" => Some(Self::TargetTypeUnknown),
+                "TARGET_TYPE_FILE" => Some(Self::TargetTypeFile),
+                "TARGET_TYPE_EXTENSION_RANGE" => Some(Self::TargetTypeExtensionRange),
+                "TARGET_TYPE_MESSAGE" => Some(Self::TargetTypeMessage),
+                "TARGET_TYPE_FIELD" => Some(Self::TargetTypeField),
+                "TARGET_TYPE_ONEOF" => Some(Self::TargetTypeOneof),
+                "TARGET_TYPE_ENUM" => Some(Self::TargetTypeEnum),
+                "TARGET_TYPE_ENUM_ENTRY" => Some(Self::TargetTypeEnumEntry),
+                "TARGET_TYPE_SERVICE" => Some(Self::TargetTypeService),
+                "TARGET_TYPE_METHOD" => Some(Self::TargetTypeMethod),
+                _ => None,
+            }
+        }
+    }
 }
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OneofOptions {
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "1")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
@@ -858,6 +1097,18 @@ pub struct EnumOptions {
     /// is a formalization for deprecating enums.
     #[prost(bool, optional, tag = "3", default = "false")]
     pub deprecated: ::core::option::Option<bool>,
+    /// Enable the legacy handling of JSON field name conflicts.  This lowercases
+    /// and strips underscored from the fields before comparison in proto3 only.
+    /// The new behavior takes `json_name` into account and applies to proto2 as
+    /// well.
+    /// TODO Remove this legacy behavior once downstream teams have
+    /// had time to migrate.
+    #[deprecated]
+    #[prost(bool, optional, tag = "6")]
+    pub deprecated_legacy_json_field_conflicts: ::core::option::Option<bool>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "7")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
@@ -871,6 +1122,14 @@ pub struct EnumValueOptions {
     /// this is a formalization for deprecating enum values.
     #[prost(bool, optional, tag = "1", default = "false")]
     pub deprecated: ::core::option::Option<bool>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "2")]
+    pub features: ::core::option::Option<FeatureSet>,
+    /// Indicate that fields annotated with this enum value should not be printed
+    /// out when using debug formats, e.g. when the field contains sensitive
+    /// credentials.
+    #[prost(bool, optional, tag = "3", default = "false")]
+    pub debug_redact: ::core::option::Option<bool>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
@@ -878,6 +1137,9 @@ pub struct EnumValueOptions {
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServiceOptions {
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "34")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// Is this service deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
     /// for the service, or it will be completely ignored; in the very least,
@@ -904,6 +1166,9 @@ pub struct MethodOptions {
         default = "IdempotencyUnknown"
     )]
     pub idempotency_level: ::core::option::Option<i32>,
+    /// Any features defined in the specific edition.
+    #[prost(message, optional, tag = "35")]
+    pub features: ::core::option::Option<FeatureSet>,
     /// The parser stores options it doesn't recognize here. See above.
     #[prost(message, repeated, tag = "999")]
     pub uninterpreted_option: ::prost::alloc::vec::Vec<UninterpretedOption>,
@@ -987,8 +1252,8 @@ pub mod uninterpreted_option {
     /// The name of the uninterpreted option.  Each string represents a segment in
     /// a dot-separated name.  is_extension is true iff a segment represents an
     /// extension (denoted with parentheses in options specs in .proto files).
-    /// E.g.,{ \["foo", false\], \["bar.baz", true\], \["qux", false\] } represents
-    /// "foo.(bar.baz).qux".
+    /// E.g.,{ \["foo", false\], \["bar.baz", true\], \["moo", false\] } represents
+    /// "foo.(bar.baz).moo".
     #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NamePart {
@@ -996,6 +1261,309 @@ pub mod uninterpreted_option {
         pub name_part: ::prost::alloc::string::String,
         #[prost(bool, required, tag = "2")]
         pub is_extension: bool,
+    }
+}
+/// TODO Enums in C++ gencode (and potentially other languages) are
+/// not well scoped.  This means that each of the feature enums below can clash
+/// with each other.  The short names we've chosen maximize call-site
+/// readability, but leave us very open to this scenario.  A future feature will
+/// be designed and implemented to handle this, hopefully before we ever hit a
+/// conflict here.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FeatureSet {
+    #[prost(enumeration = "feature_set::FieldPresence", optional, tag = "1")]
+    pub field_presence: ::core::option::Option<i32>,
+    #[prost(enumeration = "feature_set::EnumType", optional, tag = "2")]
+    pub enum_type: ::core::option::Option<i32>,
+    #[prost(enumeration = "feature_set::RepeatedFieldEncoding", optional, tag = "3")]
+    pub repeated_field_encoding: ::core::option::Option<i32>,
+    #[prost(enumeration = "feature_set::Utf8Validation", optional, tag = "4")]
+    pub utf8_validation: ::core::option::Option<i32>,
+    #[prost(enumeration = "feature_set::MessageEncoding", optional, tag = "5")]
+    pub message_encoding: ::core::option::Option<i32>,
+    #[prost(enumeration = "feature_set::JsonFormat", optional, tag = "6")]
+    pub json_format: ::core::option::Option<i32>,
+}
+/// Nested message and enum types in `FeatureSet`.
+pub mod feature_set {
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum FieldPresence {
+        Unknown = 0,
+        Explicit = 1,
+        Implicit = 2,
+        LegacyRequired = 3,
+    }
+    impl FieldPresence {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "FIELD_PRESENCE_UNKNOWN",
+                Self::Explicit => "EXPLICIT",
+                Self::Implicit => "IMPLICIT",
+                Self::LegacyRequired => "LEGACY_REQUIRED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "FIELD_PRESENCE_UNKNOWN" => Some(Self::Unknown),
+                "EXPLICIT" => Some(Self::Explicit),
+                "IMPLICIT" => Some(Self::Implicit),
+                "LEGACY_REQUIRED" => Some(Self::LegacyRequired),
+                _ => None,
+            }
+        }
+    }
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum EnumType {
+        Unknown = 0,
+        Open = 1,
+        Closed = 2,
+    }
+    impl EnumType {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "ENUM_TYPE_UNKNOWN",
+                Self::Open => "OPEN",
+                Self::Closed => "CLOSED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ENUM_TYPE_UNKNOWN" => Some(Self::Unknown),
+                "OPEN" => Some(Self::Open),
+                "CLOSED" => Some(Self::Closed),
+                _ => None,
+            }
+        }
+    }
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum RepeatedFieldEncoding {
+        Unknown = 0,
+        Packed = 1,
+        Expanded = 2,
+    }
+    impl RepeatedFieldEncoding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "REPEATED_FIELD_ENCODING_UNKNOWN",
+                Self::Packed => "PACKED",
+                Self::Expanded => "EXPANDED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "REPEATED_FIELD_ENCODING_UNKNOWN" => Some(Self::Unknown),
+                "PACKED" => Some(Self::Packed),
+                "EXPANDED" => Some(Self::Expanded),
+                _ => None,
+            }
+        }
+    }
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Utf8Validation {
+        Unknown = 0,
+        None = 1,
+        Verify = 2,
+    }
+    impl Utf8Validation {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "UTF8_VALIDATION_UNKNOWN",
+                Self::None => "NONE",
+                Self::Verify => "VERIFY",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "UTF8_VALIDATION_UNKNOWN" => Some(Self::Unknown),
+                "NONE" => Some(Self::None),
+                "VERIFY" => Some(Self::Verify),
+                _ => None,
+            }
+        }
+    }
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum MessageEncoding {
+        Unknown = 0,
+        LengthPrefixed = 1,
+        Delimited = 2,
+    }
+    impl MessageEncoding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "MESSAGE_ENCODING_UNKNOWN",
+                Self::LengthPrefixed => "LENGTH_PREFIXED",
+                Self::Delimited => "DELIMITED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "MESSAGE_ENCODING_UNKNOWN" => Some(Self::Unknown),
+                "LENGTH_PREFIXED" => Some(Self::LengthPrefixed),
+                "DELIMITED" => Some(Self::Delimited),
+                _ => None,
+            }
+        }
+    }
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum JsonFormat {
+        Unknown = 0,
+        Allow = 1,
+        LegacyBestEffort = 2,
+    }
+    impl JsonFormat {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Unknown => "JSON_FORMAT_UNKNOWN",
+                Self::Allow => "ALLOW",
+                Self::LegacyBestEffort => "LEGACY_BEST_EFFORT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "JSON_FORMAT_UNKNOWN" => Some(Self::Unknown),
+                "ALLOW" => Some(Self::Allow),
+                "LEGACY_BEST_EFFORT" => Some(Self::LegacyBestEffort),
+                _ => None,
+            }
+        }
+    }
+}
+/// A compiled specification for the defaults of a set of features.  These
+/// messages are generated from FeatureSet extensions and can be used to seed
+/// feature resolution. The resolution with this object becomes a simple search
+/// for the closest matching edition, followed by proto merges.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FeatureSetDefaults {
+    #[prost(message, repeated, tag = "1")]
+    pub defaults: ::prost::alloc::vec::Vec<
+        feature_set_defaults::FeatureSetEditionDefault,
+    >,
+    /// The minimum supported edition (inclusive) when this was constructed.
+    /// Editions before this will not have defaults.
+    #[prost(enumeration = "Edition", optional, tag = "4")]
+    pub minimum_edition: ::core::option::Option<i32>,
+    /// The maximum known edition (inclusive) when this was constructed. Editions
+    /// after this will not have reliable defaults.
+    #[prost(enumeration = "Edition", optional, tag = "5")]
+    pub maximum_edition: ::core::option::Option<i32>,
+}
+/// Nested message and enum types in `FeatureSetDefaults`.
+pub mod feature_set_defaults {
+    /// A map from every known edition with a unique set of defaults to its
+    /// defaults. Not all editions may be contained here.  For a given edition,
+    /// the defaults at the closest matching edition ordered at or before it should
+    /// be used.  This field must be in strict ascending order by edition.
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct FeatureSetEditionDefault {
+        #[prost(enumeration = "super::Edition", optional, tag = "3")]
+        pub edition: ::core::option::Option<i32>,
+        #[prost(message, optional, tag = "2")]
+        pub features: ::core::option::Option<super::FeatureSet>,
     }
 }
 /// Encapsulates information about the original source file from which a
@@ -1059,8 +1627,8 @@ pub mod source_code_info {
         /// location.
         ///
         /// Each element is a field number or an index.  They form a path from
-        /// the root FileDescriptorProto to the place where the definition.  For
-        /// example, this path:
+        /// the root FileDescriptorProto to the place where the definition occurs.
+        /// For example, this path:
         /// \[ 4, 3, 2, 7, 1 \]
         /// refers to:
         /// file.message_type(3)  // 4, 3
@@ -1114,13 +1682,13 @@ pub mod source_code_info {
         /// // Comment attached to baz.
         /// // Another line attached to baz.
         ///
-        /// // Comment attached to qux.
+        /// // Comment attached to moo.
         /// //
-        /// // Another line attached to qux.
-        /// optional double qux = 4;
+        /// // Another line attached to moo.
+        /// optional double moo = 4;
         ///
         /// // Detached comment for corge. This is not leading or trailing comments
-        /// // to qux or corge because there are blank lines separating it from
+        /// // to moo or corge because there are blank lines separating it from
         /// // both.
         ///
         /// // Detached comment for corge paragraph 2.
@@ -1172,10 +1740,119 @@ pub mod generated_code_info {
         #[prost(int32, optional, tag = "3")]
         pub begin: ::core::option::Option<i32>,
         /// Identifies the ending offset in bytes in the generated code that
-        /// relates to the identified offset. The end offset should be one past
+        /// relates to the identified object. The end offset should be one past
         /// the last relevant byte (so the length of the text = end - begin).
         #[prost(int32, optional, tag = "4")]
         pub end: ::core::option::Option<i32>,
+        #[prost(enumeration = "annotation::Semantic", optional, tag = "5")]
+        pub semantic: ::core::option::Option<i32>,
+    }
+    /// Nested message and enum types in `Annotation`.
+    pub mod annotation {
+        /// Represents the identified object's effect on the element in the original
+        /// .proto file.
+        #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            ::prost::Enumeration
+        )]
+        #[repr(i32)]
+        pub enum Semantic {
+            /// There is no effect or the effect is indescribable.
+            None = 0,
+            /// The element is set or otherwise mutated.
+            Set = 1,
+            /// An alias to the element is returned.
+            Alias = 2,
+        }
+        impl Semantic {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::None => "NONE",
+                    Self::Set => "SET",
+                    Self::Alias => "ALIAS",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "NONE" => Some(Self::None),
+                    "SET" => Some(Self::Set),
+                    "ALIAS" => Some(Self::Alias),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+/// The full set of known editions.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Edition {
+    /// A placeholder for an unknown edition value.
+    Unknown = 0,
+    /// Legacy syntax "editions".  These pre-date editions, but behave much like
+    /// distinct editions.  These can't be used to specify the edition of proto
+    /// files, but feature definitions must supply proto2/proto3 defaults for
+    /// backwards compatibility.
+    Proto2 = 998,
+    Proto3 = 999,
+    /// Editions that have been released.  The specific values are arbitrary and
+    /// should not be depended on, but they will always be time-ordered for easy
+    /// comparison.
+    Edition2023 = 1000,
+    /// Placeholder editions for testing feature resolution.  These should not be
+    /// used or relyed on outside of tests.
+    Edition1TestOnly = 1,
+    Edition2TestOnly = 2,
+    Edition99997TestOnly = 99997,
+    Edition99998TestOnly = 99998,
+    Edition99999TestOnly = 99999,
+}
+impl Edition {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "EDITION_UNKNOWN",
+            Self::Proto2 => "EDITION_PROTO2",
+            Self::Proto3 => "EDITION_PROTO3",
+            Self::Edition2023 => "EDITION_2023",
+            Self::Edition1TestOnly => "EDITION_1_TEST_ONLY",
+            Self::Edition2TestOnly => "EDITION_2_TEST_ONLY",
+            Self::Edition99997TestOnly => "EDITION_99997_TEST_ONLY",
+            Self::Edition99998TestOnly => "EDITION_99998_TEST_ONLY",
+            Self::Edition99999TestOnly => "EDITION_99999_TEST_ONLY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "EDITION_UNKNOWN" => Some(Self::Unknown),
+            "EDITION_PROTO2" => Some(Self::Proto2),
+            "EDITION_PROTO3" => Some(Self::Proto3),
+            "EDITION_2023" => Some(Self::Edition2023),
+            "EDITION_1_TEST_ONLY" => Some(Self::Edition1TestOnly),
+            "EDITION_2_TEST_ONLY" => Some(Self::Edition2TestOnly),
+            "EDITION_99997_TEST_ONLY" => Some(Self::Edition99997TestOnly),
+            "EDITION_99998_TEST_ONLY" => Some(Self::Edition99998TestOnly),
+            "EDITION_99999_TEST_ONLY" => Some(Self::Edition99999TestOnly),
+            _ => None,
+        }
     }
 }
 /// `Any` contains an arbitrary serialized protocol buffer message along with a
@@ -1204,6 +1881,10 @@ pub mod generated_code_info {
 /// ...
 /// if (any.is(Foo.class)) {
 ///    foo = any.unpack(Foo.class);
+/// }
+/// // or ...
+/// if (any.isSameTypeAs(Foo.getDefaultInstance())) {
+///    foo = any.unpack(Foo.getDefaultInstance());
 /// }
 /// ```
 ///
@@ -1297,7 +1978,8 @@ pub struct Any {
     ///
     /// Note: this functionality is not currently available in the official
     /// protobuf release, and it is not used for type URLs beginning with
-    /// type.googleapis.com.
+    /// type.googleapis.com. As of May 2023, there are no widely used type server
+    /// implementations and no plans to implement one.
     ///
     /// Schemes other than `http`, `https` (or the empty scheme) might be
     /// used with implementation specific semantics.
@@ -1339,6 +2021,9 @@ pub struct Type {
     /// The source syntax.
     #[prost(enumeration = "Syntax", tag = "6")]
     pub syntax: i32,
+    /// The source edition string, only valid when syntax is SYNTAX_EDITIONS.
+    #[prost(string, tag = "7")]
+    pub edition: ::prost::alloc::string::String,
 }
 /// A single field of a message type.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -1555,6 +2240,9 @@ pub struct Enum {
     /// The source syntax.
     #[prost(enumeration = "Syntax", tag = "5")]
     pub syntax: i32,
+    /// The source edition string, only valid when syntax is SYNTAX_EDITIONS.
+    #[prost(string, tag = "6")]
+    pub edition: ::prost::alloc::string::String,
 }
 /// Enum value definition.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -1597,6 +2285,8 @@ pub enum Syntax {
     Proto2 = 0,
     /// Syntax `proto3`.
     Proto3 = 1,
+    /// Syntax `editions`.
+    Editions = 2,
 }
 impl Syntax {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1607,6 +2297,7 @@ impl Syntax {
         match self {
             Self::Proto2 => "SYNTAX_PROTO2",
             Self::Proto3 => "SYNTAX_PROTO3",
+            Self::Editions => "SYNTAX_EDITIONS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1614,6 +2305,7 @@ impl Syntax {
         match value {
             "SYNTAX_PROTO2" => Some(Self::Proto2),
             "SYNTAX_PROTO3" => Some(Self::Proto3),
+            "SYNTAX_EDITIONS" => Some(Self::Editions),
             _ => None,
         }
     }
@@ -1749,7 +2441,7 @@ pub struct Method {
 /// The mixin construct implies that all methods in `AccessControl` are
 /// also declared with same name and request/response types in
 /// `Storage`. A documentation generator or annotation processor will
-/// see the effective `Storage.GetAcl` method after inheriting
+/// see the effective `Storage.GetAcl` method after inherting
 /// documentation and annotations as follows:
 ///
 /// ```text
@@ -2301,7 +2993,7 @@ impl NullValue {
 /// to this format using
 /// [`strftime`](<https://docs.python.org/2/library/time.html#time.strftime>) with
 /// the time format spec '%Y-%m-%dT%H:%M:%S.%fZ'. Likewise, in Java, one can use
-/// the Joda Time's [`ISODateTimeFormat.dateTime()`](<http://www.joda.org/joda-time/apidocs/org/joda/time/format/ISODateTimeFormat.html#dateTime%2D%2D>) to obtain a formatter capable of generating timestamps in this format.
+/// the Joda Time's [`ISODateTimeFormat.dateTime()`](<http://joda-time.sourceforge.net/apidocs/org/joda/time/format/ISODateTimeFormat.html#dateTime(>)) to obtain a formatter capable of generating timestamps in this format.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Timestamp {

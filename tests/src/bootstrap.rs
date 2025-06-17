@@ -27,9 +27,7 @@ fn bootstrap() {
     let include = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("tests")
-        .join("src")
-        .join("include");
+        .join("third_party/protobuf/src");
     let protobuf = include.join("google").join("protobuf");
 
     let tempdir = tempfile::Builder::new()
