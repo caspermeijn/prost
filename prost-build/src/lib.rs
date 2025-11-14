@@ -392,6 +392,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic = "Message .recursive_required_field.Foo has a required recursive field x. This message is impossible to construct without stack overflow."]
+    fn recursive_required_field() {
+        let _ = env_logger::try_init();
+        let tempdir = tempfile::tempdir().unwrap();
+
+        Config::new()
+            .out_dir(tempdir.path())
+            .compile_protos(&["src/fixtures/recursive_required_field.proto"], &["src"])
+            .unwrap();
+    }
+
+    #[test]
     fn finalize_package() {
         let _ = env_logger::try_init();
         let tempdir = tempfile::tempdir().unwrap();

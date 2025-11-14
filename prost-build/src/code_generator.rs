@@ -458,12 +458,9 @@ impl<'b> CodeGenerator<'_, 'b> {
             }
             Label::Required => {
                 self.buf.push_str(", required");
-                if self
-                .message_graph
-                .is_nested(field.descriptor.type_name(), fq_message_name)
-                {
-                    panic!("Generated enum variant names overlap: `{}` variant name to be used both by `{}` and `{}` ProtoBuf enum values",
-                generated_variant_name, old_v, value.name());
+                if self.context.is_nested(fq_message_name, &field.descriptor) {
+                    let field_name = field.descriptor.name();
+                    panic!("Message {fq_message_name} has a required recursive field {field_name}. This message is impossible to construct without stack overflow.");
                 }
             }
             Label::Repeated => {

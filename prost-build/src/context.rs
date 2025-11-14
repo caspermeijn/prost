@@ -119,6 +119,11 @@ impl<'a> Context<'a> {
             .unwrap_or_default()
     }
 
+    pub fn is_nested(&self, fq_message_name: &str, field: &FieldDescriptorProto) -> bool {
+        self.message_graph
+            .is_nested(field.type_name(), fq_message_name)
+    }
+
     /// Returns whether the Rust type for this message field needs to be `Box<_>`.
     ///
     /// This can be explicitly configured with `Config::boxed`, or necessary

@@ -35,9 +35,7 @@ message NestedGroup {
         optional NestedGroup nested_group = 1;
     }
 
-    required group RequiredGroup = 2 {
-        required NestedGroup nested_group = 1;
-    }
+    
 
     repeated group RepeatedGroup = 3 {
         repeated NestedGroup nested_groups = 1;

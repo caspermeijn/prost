@@ -1,5 +1,5 @@
 syntax = "proto2";
 
-package recursive;
+package recursive_required_field;
 
 message Foo { required Foo x = 1; }
